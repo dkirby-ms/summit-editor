@@ -1,75 +1,44 @@
-# React + TypeScript + Vite
+---
+title: Summit Patch Lab
+description: Minimal browser-based Novation Summit patch editor.
+---
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Summit Patch Lab
 
-Currently, two official plugins are available:
+A browser-only Novation Summit editor built with React, TypeScript, and Web MIDI. It supports live CC and NRPN controls, raw SysEx patch transfer, an envelope display, and a virtual keyboard.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Run
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```powershell
+npm install
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+Open the localhost URL printed by Vite in Chrome or Edge.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Connect
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+1. Connect and power on the Summit.
+2. Select **Connect MIDI** and allow MIDI/SysEx access.
+3. Select the Summit input and output.
+4. Match the editor channel to the Summit MIDI channel.
 
+Editor changes are sent to the Summit. Registered CC and NRPN changes from the Summit are reflected in the interface.
+
+## Patch Transfer
+
+Save the current Summit patch before testing SysEx.
+
+* **Fetch EXP** requests and captures the current edit buffer.
+* **Import** and **Export** read and write raw `.syx` files.
+* **Send** writes the imported or captured buffer to the Summit.
+
+Fetch remains experimental across untested firmware revisions. Patch data is preserved as raw SysEx and is not decoded.
+
+## Validate
+
+```powershell
+npm test -- --run
+npm run lint
+npm run build
 ```
