@@ -3,6 +3,7 @@ import { SUMMIT_EDIT_BUFFER_REQUEST, validateSysex } from './sysex'
 import {
   parameterById,
   summitParameters,
+  type ParameterDefinition,
   type ParameterId,
 } from '../model/parameters'
 import { usePatchStore } from '../model/patchStore'
@@ -205,7 +206,9 @@ export class SummitMidiEngine {
 
   resetHardwareToDefaults() {
     if (!this.selectedOutput) return false
-    summitParameters.forEach((parameter) => this.sendParameter(parameter.id, parameter.defaultValue))
+    summitParameters.forEach((parameter: ParameterDefinition) => {
+      if (!parameter.unverifiedEncoding) this.sendParameter(parameter.id as ParameterId, parameter.defaultValue)
+    })
     this.update({ activity: 'Sent registered defaults to Summit.' })
     return true
   }

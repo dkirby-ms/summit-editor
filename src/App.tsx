@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
   Cable,
   Download,
@@ -24,11 +24,22 @@ import {
   summitParameters,
   type ParameterDefinition,
   type ParameterId,
-  type ParameterSection,
 } from './model/parameters'
 import { usePatchStore } from './model/patchStore'
 
-const sectionOrder: ParameterSection[] = ['Oscillator', 'Filter', 'LFO', 'Effects']
+function PanelModule({ id, title, className, children }: { id: string; title: string; className: string; children: ReactNode }) {
+  return (
+    <section className={`peak-module ${className}`} aria-labelledby={id}>
+      <h2 id={id} className="peak-module-title">{title}</h2>
+      {children}
+    </section>
+  )
+}
+
+function UnavailableControls({ children }: { children: ReactNode }) {
+  return <div className="unavailable-controls"><span>Not yet implemented</span><p>{children}</p></div>
+}
+
 const whiteKeys = [0, 2, 4, 5, 7, 9, 11, 12]
 const blackKeys = [
   { offset: 1, position: 12.5 },
@@ -39,31 +50,140 @@ const blackKeys = [
 ]
 const noteNames = ['C', 'C sharp', 'D', 'D sharp', 'E', 'F', 'F sharp', 'G', 'G sharp', 'A', 'A sharp', 'B']
 
-function ParameterControl({ parameter }: { parameter: ParameterDefinition }) {
+function ParameterControl({ parameter, disabled = false }: { parameter: ParameterDefinition; disabled?: boolean }) {
   const value = usePatchStore((state) => state.values[parameter.id as ParameterId])
   const setValue = usePatchStore((state) => state.setValue)
 
   function update(nextValue: number) {
+    if (disabled) return
     const id = parameter.id as ParameterId
     setValue(id, nextValue)
     midiEngine.sendParameter(id, nextValue)
   }
 
   return (
-    <div className="parameter-control">
+    <div className={`parameter-control${parameter.prominent ? ' prominent' : ''}${disabled ? ' disabled' : ''}`}>
       <div className="parameter-heading">
-        <label htmlFor={parameter.id}>{parameter.shortLabel}</label>
-        <output htmlFor={parameter.id}>{getParameterValueLabel(parameter, value)}</output>
+        <label id={`${parameter.id}-label`} htmlFor={parameter.valueLabels || parameter.section === 'Envelope' ? parameter.id : undefined}>{parameter.shortLabel}</label>
+        <output>{getParameterValueLabel(parameter, value)}</output>
       </div>
       {parameter.valueLabels ? (
-        <select id={parameter.id} value={value} onChange={(event) => update(Number(event.target.value))}>
-          {parameter.valueLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}
+        <select id={parameter.id} value={value} disabled={disabled} onChange={(event) => update(Number(event.target.value))}>
+          {parameter.valueLabels.map((label, index) => <option key={index} value={parameter.min + index}>{label}</option>)}
         </select>
+      ) : parameter.section === 'Envelope' ? (
+        <input id={parameter.id} type="range" min={parameter.min} max={parameter.max} value={value} aria-label={parameter.label} aria-orientation={parameter.section === 'Envelope' ? 'vertical' : 'horizontal'} onChange={(event) => update(Number(event.target.value))} />
       ) : (
-        <input id={parameter.id} type="range" min={parameter.min} max={parameter.max} value={value} aria-label={parameter.label} onChange={(event) => update(Number(event.target.value))} />
+        <RotaryControl
+          id={parameter.id}
+          label={parameter.label}
+          min={parameter.min}
+          max={parameter.max}
+          value={value}
+          valueText={getParameterValueLabel(parameter, value)}
+          large={parameter.prominent}
+          disabled={disabled}
+          onChange={update}
+        />
       )}
       <span className="midi-address">
         {parameter.address.type === 'cc' ? `CC ${parameter.address.controller}` : `NRPN ${parameter.address.msb}:${parameter.address.lsb}`}
+      </span>
+    </div>
+  )
+}
+
+function RotaryControl({
+  id,
+  label,
+  min,
+  max,
+  value,
+  valueText,
+  large = false,
+  disabled = false,
+  onChange,
+}: {
+  id: string
+  label: string
+  min: number
+  max: number
+  value: number
+  valueText: string
+  large?: boolean
+  disabled?: boolean
+  onChange: (value: number) => void
+}) {
+  const dragStart = useRef<{ pointerId: number; y: number; value: number } | null>(null)
+  const range = max - min
+  const angle = range === 0 ? 0 : -135 + ((value - min) / range) * 270
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (disabled) return
+    const step = event.shiftKey ? 10 : 1
+    let nextValue: number
+    switch (event.key) {
+      case 'ArrowRight':
+      case 'ArrowUp':
+        nextValue = value + step
+        break
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        nextValue = value - step
+        break
+      case 'PageUp':
+        nextValue = value + 10
+        break
+      case 'PageDown':
+        nextValue = value - 10
+        break
+      case 'Home':
+        nextValue = min
+        break
+      case 'End':
+        nextValue = max
+        break
+      default:
+        return
+    }
+    event.preventDefault()
+    onChange(Math.min(max, Math.max(min, nextValue)))
+  }
+
+  return (
+    <div
+      id={id}
+      className={`rotary-control${large ? ' large' : ''}`}
+      role="slider"
+      tabIndex={disabled ? -1 : 0}
+      aria-disabled={disabled || undefined}
+      aria-label={label}
+      aria-valuemin={min}
+      aria-valuemax={max}
+      aria-valuenow={value}
+      aria-valuetext={valueText}
+      aria-description="Drag up or down to adjust. Use arrow keys to change by one, or Shift with an arrow key to change by ten."
+      onKeyDown={handleKeyDown}
+      onPointerDown={(event) => {
+        event.preventDefault()
+        if (disabled) return
+        event.currentTarget.setPointerCapture?.(event.pointerId)
+        dragStart.current = { pointerId: event.pointerId, y: event.clientY, value }
+      }}
+      onPointerMove={(event) => {
+        const start = dragStart.current
+        if (!start || start.pointerId !== event.pointerId) return
+        const sensitivity = event.shiftKey ? 4 : 1
+        const delta = Math.round(((start.y - event.clientY) / sensitivity) * (range / 120))
+        onChange(Math.min(max, Math.max(min, start.value + delta)))
+      }}
+      onPointerUp={(event) => {
+        if (dragStart.current?.pointerId === event.pointerId) dragStart.current = null
+      }}
+      onPointerCancel={() => { dragStart.current = null }}
+    >
+      <span className="rotary-dial" aria-hidden="true">
+        <span className="rotary-indicator" style={{ transform: `rotate(${angle}deg)` }} />
       </span>
     </div>
   )
@@ -79,13 +199,12 @@ function EnvelopeView() {
   const path = `M 24 156 L ${attackX} 40 L ${decayX} ${sustainY} L 270 ${sustainY} L ${releaseX} 156`
 
   return (
-    <section className="envelope-panel" aria-labelledby="envelope-title">
-      <div className="section-title-row">
-        <div><span className="eyebrow">Visual monitor</span><h2 id="envelope-title">Amplifier envelope</h2></div>
-        <Waves aria-hidden="true" />
+    <PanelModule id="envelope-title" title="Amp envelope" className="amp-module">
+      <div className="envelope-controls">
+        {summitParameters.filter((parameter) => parameter.section === 'Envelope').map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}
       </div>
-      <svg className="envelope-graph" viewBox="0 0 380 190" role="img" aria-labelledby="envelope-title envelope-summary">
-        <title>Amplifier envelope curve</title>
+      <svg className="envelope-graph" viewBox="0 0 380 190" role="img" aria-labelledby="envelope-graph-title envelope-summary">
+        <title id="envelope-graph-title">Amplifier envelope curve</title>
         <desc id="envelope-summary">Attack {attack}, decay {decay}, sustain {sustain}, release {release}</desc>
         <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" className="grid-line" /></pattern></defs>
         <rect width="380" height="190" fill="url(#grid)" />
@@ -98,10 +217,117 @@ function EnvelopeView() {
       <div className="envelope-readout" aria-hidden="true">
         <span><b>A</b>{attack}</span><span><b>D</b>{decay}</span><span><b>S</b>{sustain}</span><span><b>R</b>{release}</span>
       </div>
-      <div className="envelope-controls">
-        {summitParameters.filter((parameter) => parameter.section === 'Envelope').map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}
+    </PanelModule>
+  )
+}
+
+function LfoModule() {
+  const [selectedLfo, setSelectedLfo] = useState(1)
+  const parameters = summitParameters.filter((parameter) => parameter.id.startsWith(`lfo${selectedLfo}`))
+
+  return (
+    <PanelModule id="lfo-title" title="LFOs" className="lfo-module">
+      <div className="lfo-selector" role="group" aria-label="Select LFO">
+        {[1, 2, 3, 4].map((lfo) => (
+          <button
+            key={lfo}
+            type="button"
+            aria-pressed={selectedLfo === lfo}
+            onClick={() => setSelectedLfo(lfo)}
+          >
+            LFO {lfo}
+          </button>
+        ))}
       </div>
-    </section>
+      {parameters.length > 0 ? (
+        <>
+          <div className="parameter-grid" id="lfo-controls">
+            {parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}
+          </div>
+          <p className="module-note">Fade time and free-running rate are not yet implemented.</p>
+        </>
+      ) : (
+        <p className="lfo-unavailable" role="status">Controls for LFO {selectedLfo} are not yet implemented.</p>
+      )}
+    </PanelModule>
+  )
+}
+
+const DUAL_FILTER_SHAPE = 3
+
+function FilterModule() {
+  const isDual = usePatchStore((state) => state.values.filterShape === DUAL_FILTER_SHAPE)
+  const filterParameters: ParameterDefinition[] = summitParameters.filter((parameter) => parameter.section === 'Filter')
+  const featured = filterParameters.filter((parameter) => parameter.prominent)
+  const others = filterParameters.filter((parameter) => !parameter.prominent)
+
+  return (
+    <PanelModule id="filter-title" title="Filter" className="filter-module">
+      {featured.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}
+      <div className="parameter-grid">{others.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}</div>
+      <div className="dual-filter" role="group" aria-labelledby="dual-filter-title">
+        <h3 id="dual-filter-title" className="sub-module-title">Dual filter</h3>
+        <div className="parameter-grid">
+          {summitParameters.filter((parameter) => parameter.section === 'Dual filter').map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} disabled={!isDual} />)}
+        </div>
+        <p className="module-note">{isDual ? 'Combinations: ">" runs in series, "+" runs in parallel.' : 'Set Shape to Dual to edit the filter combination and separation.'} The dual combination and separation NRPNs are not in Novation's published MIDI table, so they need hardware verification.</p>
+      </div>
+      <UnavailableControls>Divergence, envelope select and modulation depths.</UnavailableControls>
+    </PanelModule>
+  )
+}
+
+const menuTabs = [
+  { id: 'voice', label: 'Voice', section: 'Voice menu' },
+  { id: 'osc1', label: 'Osc 1', section: 'Oscillator 1 menu' },
+  { id: 'osc2', label: 'Osc 2', section: 'Oscillator 2 menu' },
+  { id: 'osc3', label: 'Osc 3', section: 'Oscillator 3 menu' },
+  { id: 'noise', label: 'Noise', section: 'Noise menu' },
+] as const
+
+function MenuSettingsModule() {
+  const [selected, setSelected] = useState<(typeof menuTabs)[number]['id']>('voice')
+
+  function handleTabKey(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number
+    if (event.key === 'ArrowRight') next = (index + 1) % menuTabs.length
+    else if (event.key === 'ArrowLeft') next = (index - 1 + menuTabs.length) % menuTabs.length
+    else if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = menuTabs.length - 1
+    else return
+    event.preventDefault()
+    setSelected(menuTabs[next].id)
+    document.getElementById(`menu-tab-${menuTabs[next].id}`)?.focus()
+  }
+
+  return (
+    <PanelModule id="menu-settings-title" title="Voice & oscillator menus" className="menu-module">
+      <div className="lfo-selector menu-tabs" role="tablist" aria-label="Menu page">
+        {menuTabs.map((tab, index) => (
+          <button
+            key={tab.id}
+            id={`menu-tab-${tab.id}`}
+            type="button"
+            role="tab"
+            aria-selected={selected === tab.id}
+            aria-controls={`menu-panel-${tab.id}`}
+            tabIndex={selected === tab.id ? 0 : -1}
+            onClick={() => setSelected(tab.id)}
+            onKeyDown={(event) => handleTabKey(event, index)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {menuTabs.map((tab) => (
+        <div key={tab.id} id={`menu-panel-${tab.id}`} role="tabpanel" aria-labelledby={`menu-tab-${tab.id}`} hidden={selected !== tab.id}>
+          <div className="parameter-grid menu-grid">
+            {summitParameters.filter((parameter) => parameter.section === tab.section).map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}
+          </div>
+        </div>
+      ))}
+      <p className="module-note">Settings that live in the Summit's Voice and Osc menus rather than on panel knobs. Ranges and value orders follow the MIDI parameter list in Novation's Summit user guide. The noise high-pass NRPN is not in that list, so Reset defaults does not send it. Tuning tables are not yet implemented.</p>
+    </PanelModule>
   )
 }
 
@@ -250,7 +476,7 @@ function App() {
           <div className="brand-mark"><SlidersHorizontal aria-hidden="true" /></div>
           <div><p>NOVATION</p><h1>SUMMIT <span>PATCH LAB</span></h1></div>
         </div>
-        <div className="patch-identity"><span>Current workspace</span><strong>INIT PATCH / SINGLE</strong></div>
+        <div className="patch-identity"><span>Current workspace</span><strong>PEAK-STYLE / SINGLE PART</strong></div>
       </header>
 
       <section className="connection-strip" aria-labelledby="connection-title">
@@ -269,30 +495,74 @@ function App() {
       </section>
 
       <main>
-        <div className="workspace-grid">
-          <div className="synth-sections">
-            {sectionOrder.map((section) => (
-              <section className="synth-module" key={section} aria-labelledby={`section-${section}`}>
-                <div className="module-heading"><span>{String(sectionOrder.indexOf(section) + 1).padStart(2, '0')}</span><h2 id={`section-${section}`}>{section}</h2></div>
-                <div className="parameter-grid">{summitParameters.filter((parameter) => parameter.section === section).map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}</div>
-              </section>
-            ))}
+        <div className="panel-workspace">
+          <div className="panel-intro">
+            <div><span className="eyebrow">SUMMIT sound engine</span><h2>One part. One PEAK-style panel.</h2></div>
+            <p>Editing uses the selected MIDI channel. Independent A/B layer editing is not yet implemented.</p>
           </div>
-          <aside className="visual-column">
+          <div className="peak-panel" aria-label="PEAK-style synth panel">
+            <div className="utility-module">
+              <PanelModule id="master-title" title="Master / Animate" className="master-module">
+                <UnavailableControls>Master volume and Animate switches.</UnavailableControls>
+              </PanelModule>
+              <section className="patch-panel" aria-labelledby="patch-panel-title">
+                <div className="section-title-row"><div><span className="eyebrow">Raw SysEx</span><h2 id="patch-panel-title">Patch transfer</h2></div><Radio aria-hidden="true" /></div>
+                <p className="patch-state">{rawPatch ? `${rawPatch.length} bytes / ${rawPatchSource === 'device' ? 'Captured' : 'Imported'}` : fileMessage}</p>
+                <div className="patch-actions">
+                  <button type="button" onClick={() => midiEngine.requestEditBuffer()} disabled={!midi.selectedOutputId} title="Experimental: request the Summit edit buffer"><Download aria-hidden="true" /> Fetch <span>EXP</span></button>
+                  <button type="button" onClick={() => fileInput.current?.click()}><Upload aria-hidden="true" /> Import</button>
+                  <input ref={fileInput} className="visually-hidden" type="file" accept=".syx,audio/x-midi" aria-label="Import SysEx patch file" onChange={importPatch} />
+                  <button type="button" onClick={exportPatch} disabled={!rawPatch}><FileInput aria-hidden="true" /> Export</button>
+                  <button type="button" onClick={() => rawPatch && midiEngine.sendSysex(rawPatch)} disabled={!rawPatch || !midi.selectedOutputId}><Send aria-hidden="true" /> Send</button>
+                </div>
+                <p className="patch-note">Fetch framing is experimental pending Summit hardware validation. Imported and captured patches remain raw.</p>
+              </section>
+            </div>
+            <PanelModule id="arp-title" title="Arp" className="arp-module">
+              <UnavailableControls>Gate, key latch and arpeggiator on/off.</UnavailableControls>
+            </PanelModule>
+            <LfoModule />
+            <PanelModule id="glide-title" title="Glide" className="glide-module">
+              <UnavailableControls>Glide time and on/off.</UnavailableControls>
+            </PanelModule>
             <EnvelopeView />
-            <section className="patch-panel" aria-labelledby="patch-panel-title">
-              <div className="section-title-row"><div><span className="eyebrow">Raw SysEx</span><h2 id="patch-panel-title">Patch transfer</h2></div><Radio aria-hidden="true" /></div>
-              <p className="patch-state">{rawPatch ? `${rawPatch.length} bytes / ${rawPatchSource === 'device' ? 'Captured' : 'Imported'}` : fileMessage}</p>
-              <div className="patch-actions">
-                <button type="button" onClick={() => midiEngine.requestEditBuffer()} disabled={!midi.selectedOutputId} title="Experimental: request the Summit edit buffer"><Download aria-hidden="true" /> Fetch <span>EXP</span></button>
-                <button type="button" onClick={() => fileInput.current?.click()}><Upload aria-hidden="true" /> Import</button>
-                <input ref={fileInput} className="visually-hidden" type="file" accept=".syx,audio/x-midi" aria-label="Import SysEx patch file" onChange={importPatch} />
-                <button type="button" onClick={exportPatch} disabled={!rawPatch}><FileInput aria-hidden="true" /> Export</button>
-                <button type="button" onClick={() => rawPatch && midiEngine.sendSysex(rawPatch)} disabled={!rawPatch || !midi.selectedOutputId}><Send aria-hidden="true" /> Send</button>
+            <PanelModule id="mod-envelopes-title" title="Mod envelopes" className="mod-envelopes-module">
+              <UnavailableControls>Mod envelope 1 / 2: attack, decay, sustain and release.</UnavailableControls>
+            </PanelModule>
+            <div className="oscillator-bank">
+              {[1, 2, 3].map((oscillator) => {
+                const parameters = summitParameters.filter((parameter) => parameter.section === `Oscillator ${oscillator}`)
+                return (
+                  <PanelModule key={oscillator} id={`oscillator-${oscillator}-title`} title={`Oscillator ${oscillator}`} className="oscillator-module">
+                    <div className="parameter-grid">{parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}</div>
+                    <p className="module-note">Pitch and shape modulation depths are not yet implemented.</p>
+                  </PanelModule>
+                )
+              })}
+            </div>
+            <PanelModule id="mixer-title" title="Mixer" className="mixer-module">
+              <div className="parameter-grid">{summitParameters.filter((parameter) => parameter.section === 'Mixer').map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}</div>
+            </PanelModule>
+            <FilterModule />
+            <section className="effects-bank" aria-labelledby="effects-title">
+              <h2 id="effects-title" className="visually-hidden">Effects</h2>
+              <div className="effects-top-row">
+                {summitParameters.filter((parameter) => parameter.id === 'distortionLevel' || parameter.id === 'chorusLevel').map((parameter) => (
+                  <PanelModule key={parameter.id} id={`${parameter.id}-title`} title={parameter.shortLabel} className="effect-module">
+                    <ParameterControl parameter={parameter} />
+                  </PanelModule>
+                ))}
               </div>
-              <p className="patch-note">Fetch framing is experimental pending Summit hardware validation. Imported and captured patches remain raw.</p>
+              {summitParameters.filter((parameter) => parameter.id === 'delayLevel' || parameter.id === 'reverbLevel').map((parameter) => (
+                <PanelModule key={parameter.id} id={`${parameter.id}-title`} title={parameter.shortLabel} className="effect-module">
+                  <ParameterControl parameter={parameter} />
+                </PanelModule>
+              ))}
+              <p className="module-note">Effect levels only. Other effect controls and bypass are not yet implemented.</p>
             </section>
-          </aside>
+            <MenuSettingsModule />
+            <div className="panel-caption"><Waves aria-hidden="true" /><span>PEAK-inspired layout / SUMMIT MIDI</span><span>Documented controls only</span></div>
+          </div>
         </div>
       </main>
 

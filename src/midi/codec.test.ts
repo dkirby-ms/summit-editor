@@ -12,6 +12,9 @@ describe('MIDI codec', () => {
     expect(encodeParameter(1, parameterById.get('osc1Wave')!, 4)).toEqual([
       [0xb0, 99, 0], [0xb0, 98, 14], [0xb0, 6, 4], [0xb0, 38, 0],
     ])
+    expect(encodeParameter(1, parameterById.get('osc2Wave')!, 3)).toEqual([
+      [0xb0, 99, 0], [0xb0, 98, 23], [0xb0, 6, 3], [0xb0, 38, 0],
+    ])
   })
 
   it('clamps registered parameter values before encoding', () => {
