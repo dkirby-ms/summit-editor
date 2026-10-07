@@ -40,6 +40,16 @@ function UnavailableControls({ children }: { children: ReactNode }) {
   return <div className="unavailable-controls"><span>Not yet implemented</span><p>{children}</p></div>
 }
 
+const parameterList: readonly ParameterDefinition[] = summitParameters
+
+function parametersInSection(section: string) {
+  return parameterList.filter((parameter) => parameter.section === section)
+}
+
+function ParameterGroup({ parameters, disabled }: { parameters: readonly ParameterDefinition[]; disabled?: (parameter: ParameterDefinition) => boolean }) {
+  return <>{parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} disabled={disabled?.(parameter)} />)}</>
+}
+
 const whiteKeys = [0, 2, 4, 5, 7, 9, 11, 12]
 const blackKeys = [
   { offset: 1, position: 12.5 },
@@ -64,15 +74,15 @@ function ParameterControl({ parameter, disabled = false }: { parameter: Paramete
   return (
     <div className={`parameter-control${parameter.prominent ? ' prominent' : ''}${disabled ? ' disabled' : ''}`}>
       <div className="parameter-heading">
-        <label id={`${parameter.id}-label`} htmlFor={parameter.valueLabels || parameter.section === 'Envelope' ? parameter.id : undefined}>{parameter.shortLabel}</label>
+        <label id={`${parameter.id}-label`} htmlFor={parameter.valueLabels || parameter.fader ? parameter.id : undefined}>{parameter.shortLabel}</label>
         <output>{getParameterValueLabel(parameter, value)}</output>
       </div>
       {parameter.valueLabels ? (
         <select id={parameter.id} value={value} disabled={disabled} onChange={(event) => update(Number(event.target.value))}>
           {parameter.valueLabels.map((label, index) => <option key={index} value={parameter.min + index}>{label}</option>)}
         </select>
-      ) : parameter.section === 'Envelope' ? (
-        <input id={parameter.id} type="range" min={parameter.min} max={parameter.max} value={value} aria-label={parameter.label} aria-orientation={parameter.section === 'Envelope' ? 'vertical' : 'horizontal'} onChange={(event) => update(Number(event.target.value))} />
+      ) : parameter.fader ? (
+        <input id={parameter.id} type="range" min={parameter.min} max={parameter.max} value={value} disabled={disabled} aria-label={parameter.label} aria-orientation="vertical" onChange={(event) => update(Number(event.target.value))} />
       ) : (
         <RotaryControl
           id={parameter.id}
@@ -201,7 +211,7 @@ function EnvelopeView() {
   return (
     <PanelModule id="envelope-title" title="Amp envelope" className="amp-module">
       <div className="envelope-controls">
-        {summitParameters.filter((parameter) => parameter.section === 'Envelope').map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}
+        <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => parameter.fader)} />
       </div>
       <svg className="envelope-graph" viewBox="0 0 380 190" role="img" aria-labelledby="envelope-graph-title envelope-summary">
         <title id="envelope-graph-title">Amplifier envelope curve</title>
@@ -217,13 +227,48 @@ function EnvelopeView() {
       <div className="envelope-readout" aria-hidden="true">
         <span><b>A</b>{attack}</span><span><b>D</b>{decay}</span><span><b>S</b>{sustain}</span><span><b>R</b>{release}</span>
       </div>
+      <div className="parameter-grid envelope-options">
+        <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => !parameter.fader)} />
+      </div>
+    </PanelModule>
+  )
+}
+
+function ModEnvelopeModule() {
+  const [selected, setSelected] = useState<1 | 2>(1)
+  const parameters = parametersInSection(`Mod envelope ${selected}`)
+
+  return (
+    <PanelModule id="mod-envelopes-title" title="Mod envelopes" className="mod-envelopes-module">
+      <div className="lfo-selector" role="group" aria-label="Select mod envelope">
+        {([1, 2] as const).map((envelope) => (
+          <button key={envelope} type="button" aria-pressed={selected === envelope} onClick={() => setSelected(envelope)}>
+            Mod env {envelope}
+          </button>
+        ))}
+      </div>
+      <div className="envelope-controls">
+        <ParameterGroup parameters={parameters.filter((parameter) => parameter.fader)} />
+      </div>
+      <div className="parameter-grid envelope-options">
+        <ParameterGroup parameters={parameters.filter((parameter) => !parameter.fader)} />
+      </div>
+      <p className="module-note">Mod envelope depths are set per destination in the oscillator and filter modules.</p>
     </PanelModule>
   )
 }
 
 function LfoModule() {
   const [selectedLfo, setSelectedLfo] = useState(1)
-  const parameters = summitParameters.filter((parameter) => parameter.id.startsWith(`lfo${selectedLfo}`))
+  const parameters = parameterList.filter((parameter) => parameter.id.startsWith(`lfo${selectedLfo}`))
+  const range = usePatchStore((state) => (selectedLfo === 1 ? state.values.lfo1Range : selectedLfo === 2 ? state.values.lfo2Range : null))
+  const isSynced = range === LFO_RANGE_SYNC
+
+  function isDisabled(parameter: ParameterDefinition) {
+    if (parameter.id.endsWith('SyncRate')) return !isSynced
+    if (parameter.id.endsWith('Rate')) return isSynced
+    return false
+  }
 
   return (
     <PanelModule id="lfo-title" title="LFOs" className="lfo-module">
@@ -239,20 +284,19 @@ function LfoModule() {
           </button>
         ))}
       </div>
-      {parameters.length > 0 ? (
-        <>
-          <div className="parameter-grid" id="lfo-controls">
-            {parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}
-          </div>
-          <p className="module-note">Fade time and free-running rate are not yet implemented.</p>
-        </>
-      ) : (
-        <p className="lfo-unavailable" role="status">Controls for LFO {selectedLfo} are not yet implemented.</p>
-      )}
+      <div className="parameter-grid" id="lfo-controls">
+        <ParameterGroup parameters={parameters} disabled={isDisabled} />
+      </div>
+      <p className="module-note">
+        {selectedLfo <= 2
+          ? `Rate applies in Low and High range; Sync rate applies when Range is Sync.`
+          : `LFO ${selectedLfo} wave and rate have no published MIDI address, so only phase, slew and fade time are editable.`}
+      </p>
     </PanelModule>
   )
 }
 
+const LFO_RANGE_SYNC = 2
 const DUAL_FILTER_SHAPE = 3
 
 function FilterModule() {
@@ -272,13 +316,20 @@ function FilterModule() {
         </div>
         <p className="module-note">{isDual ? 'Combinations: ">" runs in series, "+" runs in parallel.' : 'Set Shape to Dual to edit the filter combination and separation.'} The dual combination and separation NRPNs are not in Novation's published MIDI table, so they need hardware verification.</p>
       </div>
-      <UnavailableControls>Divergence, envelope select and modulation depths.</UnavailableControls>
+      <div className="filter-modulation" role="group" aria-labelledby="filter-modulation-title">
+        <h3 id="filter-modulation-title" className="sub-module-title">Modulation</h3>
+        <div className="parameter-grid">
+          <ParameterGroup parameters={parametersInSection('Filter modulation')} />
+        </div>
+        <p className="module-note">Each depth is shown separately, so the panel's envelope-select button is not needed. Divergence is in the Voice menu.</p>
+      </div>
     </PanelModule>
   )
 }
 
 const menuTabs = [
   { id: 'voice', label: 'Voice', section: 'Voice menu' },
+  { id: 'common', label: 'Osc common', section: 'Oscillator common menu' },
   { id: 'osc1', label: 'Osc 1', section: 'Oscillator 1 menu' },
   { id: 'osc2', label: 'Osc 2', section: 'Oscillator 2 menu' },
   { id: 'osc3', label: 'Osc 3', section: 'Oscillator 3 menu' },
@@ -326,7 +377,7 @@ function MenuSettingsModule() {
           </div>
         </div>
       ))}
-      <p className="module-note">Settings that live in the Summit's Voice and Osc menus rather than on panel knobs. Ranges and value orders follow the MIDI parameter list in Novation's Summit user guide. The noise high-pass NRPN is not in that list, so Reset defaults does not send it. Tuning tables are not yet implemented.</p>
+      <p className="module-note">Settings that live in the Summit's Voice and Osc menus rather than on panel knobs. Ranges and value orders follow the MIDI parameter list in Novation's Summit user guide. The noise high-pass NRPN is not in that list, so Reset defaults does not send it. Tuning table selection is not yet implemented.</p>
     </PanelModule>
   )
 }
@@ -523,19 +574,17 @@ function App() {
             </PanelModule>
             <LfoModule />
             <PanelModule id="glide-title" title="Glide" className="glide-module">
-              <UnavailableControls>Glide time and on/off.</UnavailableControls>
+              <div className="parameter-grid"><ParameterGroup parameters={parametersInSection('Glide')} /></div>
             </PanelModule>
             <EnvelopeView />
-            <PanelModule id="mod-envelopes-title" title="Mod envelopes" className="mod-envelopes-module">
-              <UnavailableControls>Mod envelope 1 / 2: attack, decay, sustain and release.</UnavailableControls>
-            </PanelModule>
+            <ModEnvelopeModule />
             <div className="oscillator-bank">
               {[1, 2, 3].map((oscillator) => {
                 const parameters = summitParameters.filter((parameter) => parameter.section === `Oscillator ${oscillator}`)
                 return (
                   <PanelModule key={oscillator} id={`oscillator-${oscillator}-title`} title={`Oscillator ${oscillator}`} className="oscillator-module">
                     <div className="parameter-grid">{parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}</div>
-                    <p className="module-note">Pitch and shape modulation depths are not yet implemented.</p>
+                    <p className="module-note">Mod depths are centred at 0. Each source has its own depth, so the panel's shape-source button is not needed.</p>
                   </PanelModule>
                 )
               })}

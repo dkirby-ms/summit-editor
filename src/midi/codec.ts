@@ -26,13 +26,13 @@ export function encodeNrpn(channel: number, parameterMsb: number, parameterLsb: 
   assertDataByte(parameterMsb, 'NRPN parameter MSB')
   assertDataByte(parameterLsb, 'NRPN parameter LSB')
   assertDataByte(value, 'NRPN value')
-  const fourteenBitValue = value << 7
 
+  // Summit NRPN values are 7-bit, so only Data Entry MSB is sent. CC 38 is
+  // Oscillator 2 ModEnv2 > Pitch on the Summit, not a data-entry LSB.
   return [
     encodeCc(channel, 99, parameterMsb),
     encodeCc(channel, 98, parameterLsb),
-    encodeCc(channel, 6, (fourteenBitValue >> 7) & 0x7f),
-    encodeCc(channel, 38, fourteenBitValue & 0x7f),
+    encodeCc(channel, 6, value),
   ]
 }
 

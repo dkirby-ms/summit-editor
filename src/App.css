@@ -39,6 +39,7 @@ main { padding: clamp(22px, 4vw, 52px) clamp(20px, 4vw, 64px); background-image:
 .utility-module { grid-area: utility; display: grid; grid-template-columns: minmax(0, 0.75fr) minmax(0, 2fr); gap: 8px; }
 .arp-module { grid-area: arp; }
 .glide-module { grid-area: glide; }
+.glide-module .parameter-grid { grid-template-columns: minmax(0, 1fr); }
 .lfo-module { grid-area: lfo; }
 .lfo-selector { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; padding: 8px 8px 0; }
 .lfo-selector button { min-height: 34px; border: 1px solid #596365; background: #202527; color: #b7c1c3; font: 500 10px var(--mono); text-transform: uppercase; cursor: pointer; }
@@ -55,7 +56,9 @@ main { padding: clamp(22px, 4vw, 52px) clamp(20px, 4vw, 64px); background-image:
 .menu-tabs button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 .parameter-grid.menu-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
 .menu-grid .parameter-control:nth-child(n) { border-right: 1px solid #596365; }
-.dual-filter { border-top: 1px solid #596365; }
+.dual-filter, .filter-modulation { border-top: 1px solid #596365; }
+.envelope-options { border-top: 1px solid #596365; }
+.mod-envelopes-module .lfo-selector { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .sub-module-title { margin: 0; padding: 10px 10px 0; font: 500 10px var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: #b7c1c3; }
 .effects-bank { grid-area: effects; display: grid; gap: 8px; align-content: start; min-width: 0; }
 .effects-top-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

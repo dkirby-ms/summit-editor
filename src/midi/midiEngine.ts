@@ -78,6 +78,7 @@ export class SummitMidiEngine {
   private access: MidiAccessLike | null = null
   private readonly requestAccess: RequestMidiAccess
   private inboundNrpn: { msb: number | null; lsb: number | null } = { msb: null, lsb: null }
+  private lastWasNrpnDataEntry = false
   private selectedInput: MidiInputLike | null = null
   private selectedOutput: MidiOutputLike | null = null
   private readonly listeners = new Set<() => void>()
@@ -147,6 +148,7 @@ export class SummitMidiEngine {
   selectInput(id: string) {
     if (this.selectedInput) this.selectedInput.onmidimessage = null
     this.inboundNrpn = { msb: null, lsb: null }
+    this.lastWasNrpnDataEntry = false
     this.selectedInput = this.access
       ? Array.from(this.access.inputs.values()).find((input) => input.id === id) ?? null
       : null
@@ -245,6 +247,11 @@ export class SummitMidiEngine {
     const message = decodeCcMessage(data)
     if (!message || message.channel !== this.snapshot.channel) return
 
+    // A CC 38 directly after NRPN data entry is a data-entry LSB, not Osc 2 ModEnv2 > Pitch.
+    const followsDataEntry = this.lastWasNrpnDataEntry
+    this.lastWasNrpnDataEntry = false
+    if (message.controller === 38 && followsDataEntry) return
+
     if (message.controller === 99) {
       this.inboundNrpn = { msb: message.value === 127 ? null : message.value, lsb: null }
       return
@@ -258,6 +265,7 @@ export class SummitMidiEngine {
       return
     }
     if (message.controller === 6 && this.inboundNrpn.msb !== null && this.inboundNrpn.lsb !== null) {
+      this.lastWasNrpnDataEntry = true
       const parameter = summitParameters.find(
         (candidate) => candidate.address.type === 'nrpn'
           && candidate.address.msb === this.inboundNrpn.msb

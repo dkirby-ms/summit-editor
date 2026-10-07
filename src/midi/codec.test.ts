@@ -8,12 +8,12 @@ describe('MIDI codec', () => {
     expect(encodeCc(3, 79, 64)).toEqual([0xb2, 79, 64])
   })
 
-  it('encodes a Summit NRPN with select and 14-bit data entry messages', () => {
+  it('encodes a Summit NRPN with select and 7-bit data entry messages (no CC 38 LSB)', () => {
     expect(encodeParameter(1, parameterById.get('osc1Wave')!, 4)).toEqual([
-      [0xb0, 99, 0], [0xb0, 98, 14], [0xb0, 6, 4], [0xb0, 38, 0],
+      [0xb0, 99, 0], [0xb0, 98, 14], [0xb0, 6, 4],
     ])
     expect(encodeParameter(1, parameterById.get('osc2Wave')!, 3)).toEqual([
-      [0xb0, 99, 0], [0xb0, 98, 23], [0xb0, 6, 3], [0xb0, 38, 0],
+      [0xb0, 99, 0], [0xb0, 98, 23], [0xb0, 6, 3],
     ])
   })
 

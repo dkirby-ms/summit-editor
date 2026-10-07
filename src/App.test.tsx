@@ -15,11 +15,12 @@ describe('Summit Patch Lab', () => {
 
   it('places every existing parameter once in its PEAK panel section', () => {
     render(<App />)
+    const behindSelector = /^(lfo[234]|modEnv2)/
     for (const parameter of summitParameters) {
-      expect(document.querySelectorAll(`[id="${parameter.id}"]`)).toHaveLength(1)
+      expect(document.querySelectorAll(`[id="${parameter.id}"]`)).toHaveLength(behindSelector.test(parameter.id) ? 0 : 1)
     }
     expect(within(screen.getByRole('region', { name: 'Oscillator 1' })).getByLabelText('Wave')).toBeInTheDocument()
-    expect(within(screen.getByRole('region', { name: 'LFOs' })).getByRole('slider', { name: 'LFO 1 sync rate' })).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'LFOs' })).getByRole('combobox', { name: 'Sync rate' })).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Filter' })).getByLabelText('Filter resonance')).toBeInTheDocument()
     for (const label of ['Attack', 'Decay', 'Sustain', 'Release']) {
       expect(within(screen.getByRole('region', { name: 'Amp envelope' })).getByLabelText(`Amplifier envelope ${label.toLowerCase()}`)).toHaveAttribute('aria-orientation', 'vertical')
@@ -31,7 +32,7 @@ describe('Summit Patch Lab', () => {
 
   it('marks unsupported PEAK sections without offering non-working controls', () => {
     render(<App />)
-    for (const name of ['Master / Animate', 'Arp', 'Glide', 'Mod envelopes']) {
+    for (const name of ['Master / Animate', 'Arp']) {
       const section = within(screen.getByRole('region', { name }))
       expect(section.getByText('Not yet implemented')).toBeInTheDocument()
       expect(section.queryByRole('slider')).not.toBeInTheDocument()
@@ -104,29 +105,73 @@ describe('Summit Patch Lab', () => {
     expect(menus.getByRole('slider', { name: 'Oscillator 2 bend range' })).toHaveAttribute('aria-valuetext', '+12')
     expect(menus.queryByRole('slider', { name: 'Unison detune' })).not.toBeInTheDocument()
 
+    await user.click(menus.getByRole('tab', { name: 'Osc common' }))
+    expect(menus.getByRole('slider', { name: 'Oscillator divergence' })).toBeVisible()
+    expect(menus.getByRole('slider', { name: 'Oscillator drift' })).toBeVisible()
+    await user.click(menus.getByRole('tab', { name: 'Osc 2' }))
     menus.getByRole('tab', { name: 'Osc 2' }).focus()
     await user.keyboard('{ArrowRight}')
     expect(menus.getByRole('tab', { name: 'Osc 3' })).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('switches between four LFO selections without displaying unsupported controls', async () => {
+  it('switches between four LFOs and gates rate against sync rate by range', async () => {
     const user = userEvent.setup()
+    const sendParameter = vi.spyOn(midiEngine, 'sendParameter').mockReturnValue(false)
     render(<App />)
 
     const lfoPanel = within(screen.getByRole('region', { name: 'LFOs' }))
-    const lfo1Button = lfoPanel.getByRole('button', { name: 'LFO 1' })
-    expect(lfo1Button).toHaveAttribute('aria-pressed', 'true')
-    expect(lfoPanel.getByRole('slider', { name: 'LFO 1 sync rate' })).toBeInTheDocument()
+    expect(lfoPanel.getByRole('button', { name: 'LFO 1' })).toHaveAttribute('aria-pressed', 'true')
+    const syncRate = lfoPanel.getByRole('combobox', { name: 'Sync rate' })
+    expect(syncRate).toBeDisabled()
+    expect(syncRate).toHaveDisplayValue('8 beats')
+    expect(lfoPanel.getByRole('slider', { name: 'LFO 1 rate' })).not.toHaveAttribute('aria-disabled')
+    expect(lfoPanel.getByRole('combobox', { name: 'Phase' })).toHaveDisplayValue('Free')
 
-    for (const lfo of [2, 3, 4]) {
+    await user.selectOptions(lfoPanel.getByRole('combobox', { name: 'Range' }), 'Sync')
+    expect(sendParameter).toHaveBeenCalledWith('lfo1Range', 2)
+    expect(lfoPanel.getByRole('combobox', { name: 'Sync rate' })).toBeEnabled()
+    expect(lfoPanel.getByRole('slider', { name: 'LFO 1 rate' })).toHaveAttribute('aria-disabled', 'true')
+
+    await user.click(lfoPanel.getByRole('button', { name: 'LFO 2' }))
+    expect(lfoPanel.getByRole('slider', { name: 'LFO 2 rate' })).toBeInTheDocument()
+    expect(lfoPanel.getByRole('combobox', { name: 'Sync rate' })).toBeDisabled()
+
+    for (const lfo of [3, 4]) {
       await user.click(lfoPanel.getByRole('button', { name: `LFO ${lfo}` }))
       expect(lfoPanel.getByRole('button', { name: `LFO ${lfo}` })).toHaveAttribute('aria-pressed', 'true')
-      expect(lfoPanel.getByRole('status')).toHaveTextContent(`Controls for LFO ${lfo} are not yet implemented.`)
-      expect(lfoPanel.queryByRole('slider', { name: 'LFO 1 sync rate' })).not.toBeInTheDocument()
+      expect(lfoPanel.getByRole('slider', { name: `LFO ${lfo} slew` })).toBeInTheDocument()
+      expect(lfoPanel.queryByRole('combobox', { name: 'Wave' })).not.toBeInTheDocument()
+      expect(lfoPanel.getByText(`LFO ${lfo} wave and rate have no published MIDI address`, { exact: false })).toBeInTheDocument()
     }
+  })
 
-    await user.click(lfo1Button)
-    expect(lfoPanel.getByRole('slider', { name: 'LFO 1 sync rate' })).toBeInTheDocument()
+  it('edits mod envelopes, glide and filter modulation depths', async () => {
+    const user = userEvent.setup()
+    const sendParameter = vi.spyOn(midiEngine, 'sendParameter').mockReturnValue(false)
+    render(<App />)
+
+    const modEnv = within(screen.getByRole('region', { name: 'Mod envelopes' }))
+    expect(modEnv.getByLabelText('Mod envelope 1 attack')).toHaveAttribute('aria-orientation', 'vertical')
+    expect(modEnv.getByRole('combobox', { name: 'MonoTrig' })).toHaveDisplayValue('Re-Trig')
+    await user.click(modEnv.getByRole('button', { name: 'Mod env 2' }))
+    expect(modEnv.getByRole('button', { name: 'Mod env 2' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.change(modEnv.getByLabelText('Mod envelope 2 decay'), { target: { value: '100' } })
+    expect(sendParameter).toHaveBeenCalledWith('modEnv2Decay', 100)
+    expect(modEnv.queryByLabelText('Mod envelope 1 attack')).not.toBeInTheDocument()
+
+    const glide = within(screen.getByRole('region', { name: 'Glide' }))
+    await user.selectOptions(glide.getByRole('combobox', { name: 'Glide' }), 'On')
+    expect(sendParameter).toHaveBeenCalledWith('glideOn', 1)
+    expect(glide.getByRole('slider', { name: 'Glide time' })).toBeInTheDocument()
+
+    const filter = within(screen.getByRole('region', { name: 'Filter' }))
+    expect(filter.getByRole('slider', { name: 'LFO 1 to filter frequency depth' })).toHaveAttribute('aria-valuetext', '0')
+    expect(filter.getByRole('slider', { name: 'Oscillator 3 to filter frequency depth' })).toHaveAttribute('aria-valuetext', '0')
+    expect(filter.queryByText('Not yet implemented')).not.toBeInTheDocument()
+
+    const amp = within(screen.getByRole('region', { name: 'Amp envelope' }))
+    expect(amp.getByRole('combobox', { name: 'MonoTrig' })).toHaveDisplayValue('Legato')
+    expect(within(screen.getByRole('region', { name: 'Oscillator 2' })).getByRole('slider', { name: /Oscillator 2 mod envelope 2 to pitch/i })).toHaveAttribute('aria-valuetext', '0')
   })
 
   it('preserves parameter MIDI sends after rearranging controls', () => {
