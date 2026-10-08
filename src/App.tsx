@@ -27,6 +27,11 @@ import {
   type ParameterDefinition,
   type ParameterId,
 } from './model/parameters'
+import {
+  modMatrixDestinations,
+  modMatrixSources,
+  type ModMatrixField,
+} from './model/modMatrix'
 import { usePatchStore } from './model/patchStore'
 
 function ControlHelp({ label, text }: { label: string; text: string }) {
@@ -51,8 +56,8 @@ function SectionToggle({ title, expanded, controls, onToggle }: { title: string;
   )
 }
 
-function PanelModule({ id, title, className, children, help, eyebrow }: { id: string; title: string; className: string; children: ReactNode; help?: string; eyebrow?: string }) {
-  const [expanded, setExpanded] = useState(true)
+function PanelModule({ id, title, className, children, help, eyebrow, defaultExpanded = true }: { id: string; title: string; className: string; children: ReactNode; help?: string; eyebrow?: string; defaultExpanded?: boolean }) {
+  const [expanded, setExpanded] = useState(defaultExpanded)
   return (
     <section className={`peak-module ${className}`} aria-labelledby={id}>
       {eyebrow && <span className="eyebrow">{eyebrow}</span>}
@@ -311,6 +316,90 @@ function ModEnvelopeModule() {
       <div className="parameter-grid envelope-options">
         <ParameterGroup parameters={parameters.filter((parameter) => !parameter.fader)} />
       </div>
+    </PanelModule>
+  )
+}
+
+function ModMatrixModule() {
+  const [selectedSlot, setSelectedSlot] = useState(0)
+  const slots = usePatchStore((state) => state.modMatrix)
+  const setModMatrixValue = usePatchStore((state) => state.setModMatrixValue)
+  const slot = slots[selectedSlot]
+  const number = selectedSlot + 1
+
+  function update(slotIndex: number, field: ModMatrixField, value: number) {
+    setModMatrixValue(slotIndex, field, value)
+    midiEngine.sendModMatrixValue(slotIndex, field, value)
+  }
+
+  return (
+    <PanelModule
+      id="mod-matrix-title"
+      title="Modulation matrix"
+      className="matrix-module"
+      eyebrow="16 SLOTS / VERIFY MAPPING"
+      defaultExpanded={false}
+      help="Each slot combines two modulation sources, applies the signed depth, then routes it to one destination. Changes send immediately."
+    >
+      <p className="matrix-notice" role="note">
+        Assignment NRPNs are community-documented, not published by Novation. Verify behavior with your Summit.
+        The available choices may not include destinations added in later firmware.
+      </p>
+      <div className="matrix-slot-selector" role="group" aria-label="Select modulation slot">
+        {slots.map((_, slotIndex) => (
+          <button
+            key={slotIndex}
+            type="button"
+            aria-label={`Modulation slot ${slotIndex + 1}`}
+            aria-pressed={selectedSlot === slotIndex}
+            aria-controls="mod-matrix-slot-editor"
+            onClick={() => setSelectedSlot(slotIndex)}
+          >
+            {String(slotIndex + 1).padStart(2, '0')}
+          </button>
+        ))}
+      </div>
+      <fieldset className="matrix-slot" id="mod-matrix-slot-editor">
+        <legend>Slot {String(number).padStart(2, '0')}</legend>
+        <label>
+          <span>Source A</span>
+          <select aria-label={`Slot ${number} source A`} value={slot.sourceA} onChange={(event) => update(selectedSlot, 'sourceA', Number(event.target.value))}>
+            {modMatrixSources.map((source, index) => <option key={source} value={index}>{source}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Source B</span>
+          <select aria-label={`Slot ${number} source B`} value={slot.sourceB} onChange={(event) => update(selectedSlot, 'sourceB', Number(event.target.value))}>
+            {modMatrixSources.map((source, index) => <option key={source} value={index}>{source}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>Destination</span>
+          <select aria-label={`Slot ${number} destination`} value={slot.destination} onChange={(event) => update(selectedSlot, 'destination', Number(event.target.value))}>
+            {modMatrixDestinations.map((destination, index) => <option key={destination} value={index}>{destination}</option>)}
+          </select>
+        </label>
+        <label className="matrix-depth">
+          <span>Depth <output>{slot.depth > 64 ? `+${slot.depth - 64}` : slot.depth - 64}</output></span>
+          <input
+            type="range"
+            min="0"
+            max="127"
+            value={slot.depth}
+            aria-label={`Slot ${number} depth`}
+            aria-valuetext={slot.depth > 64 ? `+${slot.depth - 64}` : String(slot.depth - 64)}
+            aria-description="Depth is bipolar with 64 as zero. Use arrow keys to adjust; double-click or press Delete to reset to zero."
+            onChange={(event) => update(selectedSlot, 'depth', Number(event.target.value))}
+            onDoubleClick={() => update(selectedSlot, 'depth', 64)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Delete') return
+              event.preventDefault()
+              update(selectedSlot, 'depth', 64)
+            }}
+          />
+        </label>
+        <span className="midi-address">NRPN {number}:0-3 / slot select 0:125</span>
+      </fieldset>
     </PanelModule>
   )
 }
@@ -670,6 +759,7 @@ function App() {
               <div className="parameter-grid"><ParameterGroup parameters={mixerParameters} /></div>
             </PanelModule>
             <FilterModule />
+            <ModMatrixModule />
             <PanelModule id="arp-title" title="Arp" className="arp-module">
               <UnavailableControls>Gate, key latch and arpeggiator on/off.</UnavailableControls>
             </PanelModule>

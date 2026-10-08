@@ -34,7 +34,7 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .panel-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 8px; }
 .panel-intro h2 { margin: 2px 0 0; font-size: 20px; }
 .panel-intro p { max-width: 420px; margin: 0; font: 400 11px/1.6 var(--mono); color: var(--muted); }
-.peak-panel { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-areas: 'utility utility lfo lfo lfo lfo amp amp amp mod mod mod' 'osc osc osc osc osc osc mixer mixer filter filter filter filter' 'arp glide effects effects effects menu menu menu menu menu menu menu' 'caption caption caption caption caption caption caption caption caption caption caption caption'; gap: 6px; padding: 8px; border: 6px solid #715843; border-top-width: 2px; border-bottom-width: 2px; border-radius: 8px; background: #202527; color: #f4f4ef; box-shadow: 0 10px 24px #25292b26; align-items: start; }
+.peak-panel { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-template-areas: 'utility utility lfo lfo lfo lfo amp amp amp mod mod mod' 'osc osc osc osc osc osc mixer mixer filter filter filter filter' 'matrix matrix matrix matrix matrix matrix matrix matrix matrix matrix matrix matrix' 'arp glide effects effects effects menu menu menu menu menu menu menu' 'caption caption caption caption caption caption caption caption caption caption caption caption'; gap: 6px; padding: 8px; border: 6px solid #715843; border-top-width: 2px; border-bottom-width: 2px; border-radius: 8px; background: #202527; color: #f4f4ef; box-shadow: 0 10px 24px #25292b26; align-items: start; }
 .peak-module, .peak-panel .patch-panel { min-width: 0; border: 1px solid #7d898c; background: #292f31; }
 .module-heading { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 4px; border-bottom: 1px solid #596365; }
 .app-shell [hidden] { display: none !important; }
@@ -64,6 +64,20 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .lfo-module .parameter-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .mixer-module { grid-area: mixer; }
 .filter-module { grid-area: filter; }
+.matrix-module { grid-area: matrix; }
+.matrix-notice { margin: 6px; padding: 7px 9px; border-left: 3px solid var(--signal); background: #202527; color: #e4d5ac; font: 400 10px/1.5 var(--mono); }
+.matrix-slot-selector { display: grid; grid-template-columns: repeat(16, minmax(0, 1fr)); gap: 3px; padding: 5px 6px 0; }
+.matrix-slot-selector button { min-width: 0; min-height: 30px; padding: 0 4px; border: 1px solid #596365; background: #202527; color: #b7c1c3; font: 500 10px var(--mono); }
+.matrix-slot-selector button[aria-pressed='true'] { border-color: var(--signal); background: var(--signal); color: #1f2426; font-weight: 700; }
+.matrix-slot { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; min-width: 0; margin: 5px 6px 6px; padding: 5px; border: 1px solid #596365; }
+.matrix-slot legend { padding: 0 5px; color: var(--signal); font: 500 10px var(--mono); text-transform: uppercase; letter-spacing: 0.08em; }
+.matrix-slot label { display: block; min-width: 0; font: 500 9px/1.35 var(--mono); text-transform: uppercase; color: #b7c1c3; }
+.matrix-slot .matrix-depth, .matrix-slot .midi-address { grid-column: 1 / -1; }
+.matrix-slot select { display: block; width: 100%; min-width: 0; min-height: 32px; margin-top: 3px; padding: 0 4px; border: 1px solid #596365; border-radius: 2px; background: #202527; color: #f4f4ef; font-size: 11px; }
+.matrix-depth > span { display: flex; justify-content: space-between; gap: 6px; }
+.matrix-depth output { color: #f1c965; font: 500 10px var(--mono); }
+.matrix-depth input { display: block; width: 100%; height: 28px; margin: 3px 0 0; accent-color: var(--signal); }
+.matrix-slot .midi-address { align-self: end; }
 .parameter-grid.filter-main, .filter-modulation .parameter-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .mixer-module .parameter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .menu-module { grid-area: menu; }
@@ -177,7 +191,7 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 @media (max-width: 1050px) {
   .connection-strip { grid-template-columns: auto auto 1fr 1fr; }
   .channel-select { grid-column: 3; }
-  .peak-panel { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: 'utility utility lfo lfo' 'amp amp mod mod' 'osc osc osc osc' 'mixer filter filter filter' 'arp glide effects effects' 'menu menu menu menu' 'caption caption caption caption'; }
+  .peak-panel { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: 'utility utility lfo lfo' 'amp amp mod mod' 'osc osc osc osc' 'mixer filter filter filter' 'matrix matrix matrix matrix' 'arp glide effects effects' 'menu menu menu menu' 'caption caption caption caption'; }
   .utility-module { grid-template-columns: minmax(0, 1fr) minmax(0, 3fr); }
   .mixer-module .parameter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lfo-module .parameter-grid { grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); }
@@ -192,11 +206,12 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
   .channel-select { grid-column: auto; }
   main { padding: 10px; }
   .panel-intro { align-items: start; flex-direction: column; gap: 8px; }
-  .peak-panel { padding: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: 'utility utility' 'lfo lfo' 'amp amp' 'mod mod' 'osc osc' 'mixer mixer' 'filter filter' 'arp glide' 'effects effects' 'menu menu' 'caption caption'; }
+  .peak-panel { padding: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-areas: 'utility utility' 'lfo lfo' 'amp amp' 'mod mod' 'osc osc' 'mixer mixer' 'filter filter' 'matrix matrix' 'arp glide' 'effects effects' 'menu menu' 'caption caption'; }
   .panel-caption { flex-wrap: wrap; }
   .panel-caption span:last-child { margin-left: 0; }
   .parameter-grid { grid-template-columns: 1fr 1fr; }
   .parameter-grid.filter-main, .filter-modulation .parameter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .matrix-slot-selector { grid-template-columns: repeat(8, minmax(0, 1fr)); }
   .parameter-control { padding: 6px; }
   .menu-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .app-footer { grid-template-columns: 1fr auto; padding: 14px 18px; }
@@ -217,6 +232,9 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
   .parameter-grid.filter-main, .filter-modulation .parameter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .utility-module { grid-template-columns: 1fr; }
   .effects-top-row { grid-template-columns: 1fr; }
+  .matrix-slot-selector { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .matrix-slot { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .matrix-slot label:nth-of-type(3) { grid-column: 1 / -1; }
   .parameter-control { border-right: 0; }
   .patch-actions { grid-template-columns: 1fr; }
   .app-footer { grid-template-columns: 1fr; }

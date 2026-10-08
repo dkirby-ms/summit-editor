@@ -2,12 +2,18 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { defaultModMatrix, modMatrixDestinations, modMatrixSources } from './model/modMatrix'
 import { defaultPatchValues, summitParameters } from './model/parameters'
 import { usePatchStore } from './model/patchStore'
 import { midiEngine } from './midi/midiEngine'
 
 describe('Summit Patch Lab', () => {
-  beforeEach(() => usePatchStore.setState({ values: { ...defaultPatchValues }, rawPatch: null, rawPatchSource: null }))
+  beforeEach(() => usePatchStore.setState({
+    values: { ...defaultPatchValues },
+    modMatrix: defaultModMatrix.map((slot) => ({ ...slot })),
+    rawPatch: null,
+    rawPatchSource: null,
+  }))
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
@@ -344,6 +350,42 @@ describe('Summit Patch Lab', () => {
     expect(screen.getByRole('img', { name: 'Amplifier envelope curve' })).toHaveAccessibleDescription(/sustain 127/)
     const ids = [...document.querySelectorAll('[id]')].map((element) => element.id)
     expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('edits all 16 modulation slots and sends their NRPN assignments', () => {
+    const send = vi.spyOn(midiEngine, 'sendModMatrixValue').mockReturnValue(true)
+    render(<App />)
+
+    const matrix = within(screen.getByRole('region', { name: 'Modulation matrix' }))
+    const matrixToggle = matrix.getByRole('button', { name: 'Modulation matrix' })
+    expect(matrixToggle).toHaveAttribute('aria-expanded', 'false')
+    expect(matrix.getByText('16 SLOTS / VERIFY MAPPING')).toBeInTheDocument()
+    fireEvent.click(matrixToggle)
+    const slots = matrix.getByRole('group', { name: 'Select modulation slot' })
+    expect(within(slots).getAllByRole('button')).toHaveLength(16)
+    expect(matrix.getByRole('combobox', { name: 'Slot 1 source A' })).toHaveValue('0')
+    expect(matrix.getByRole('slider', { name: 'Slot 1 depth' })).toHaveAttribute('aria-valuetext', '0')
+    expect(matrix.getByRole('combobox', { name: 'Slot 1 source A' }).querySelectorAll('option')).toHaveLength(modMatrixSources.length)
+    expect(matrix.getByRole('combobox', { name: 'Slot 1 destination' }).querySelectorAll('option')).toHaveLength(modMatrixDestinations.length)
+    expect(matrix.getByText(/community-documented, not published by Novation/i)).toBeInTheDocument()
+
+    fireEvent.change(matrix.getByRole('combobox', { name: 'Slot 1 source A' }), { target: { value: '7' } })
+    fireEvent.change(matrix.getByRole('combobox', { name: 'Slot 1 source B' }), { target: { value: '10' } })
+    fireEvent.change(matrix.getByRole('combobox', { name: 'Slot 1 destination' }), { target: { value: '18' } })
+    fireEvent.change(matrix.getByRole('slider', { name: 'Slot 1 depth' }), { target: { value: '80' } })
+
+    expect(send).toHaveBeenNthCalledWith(1, 0, 'sourceA', 7)
+    expect(send).toHaveBeenNthCalledWith(2, 0, 'sourceB', 10)
+    expect(send).toHaveBeenNthCalledWith(3, 0, 'destination', 18)
+    expect(send).toHaveBeenNthCalledWith(4, 0, 'depth', 80)
+    expect(matrix.getByRole('slider', { name: 'Slot 1 depth' })).toHaveAttribute('aria-valuetext', '+16')
+    expect(usePatchStore.getState().modMatrix[0]).toEqual({ sourceA: 7, sourceB: 10, depth: 80, destination: 18 })
+
+    fireEvent.click(matrix.getByRole('button', { name: 'Modulation slot 16' }))
+    expect(matrix.getByRole('button', { name: 'Modulation slot 16' })).toHaveAttribute('aria-pressed', 'true')
+    expect(matrix.getByRole('combobox', { name: 'Slot 16 source A' })).toHaveValue('0')
+    fireEvent.click(matrix.getByRole('button', { name: 'Modulation slot 1' }))
+    expect(matrix.getByRole('combobox', { name: 'Slot 1 source A' })).toHaveValue('7')
   })
 
   it('renders an offline virtual keyboard with octave and velocity controls', async () => {

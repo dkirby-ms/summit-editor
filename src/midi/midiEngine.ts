@@ -7,6 +7,7 @@ import {
   type ParameterId,
 } from '../model/parameters'
 import { usePatchStore } from '../model/patchStore'
+import type { ModMatrixField } from '../model/modMatrix'
 
 export type MidiStatus =
   | 'unsupported'
@@ -79,6 +80,7 @@ export class SummitMidiEngine {
   private readonly requestAccess: RequestMidiAccess
   private inboundNrpn: { msb: number | null; lsb: number | null } = { msb: null, lsb: null }
   private lastWasNrpnDataEntry = false
+  private inboundModMatrixSlot: number | null = null
   private selectedInput: MidiInputLike | null = null
   private selectedOutput: MidiOutputLike | null = null
   private readonly listeners = new Set<() => void>()
@@ -149,6 +151,7 @@ export class SummitMidiEngine {
     if (this.selectedInput) this.selectedInput.onmidimessage = null
     this.inboundNrpn = { msb: null, lsb: null }
     this.lastWasNrpnDataEntry = false
+    this.inboundModMatrixSlot = null
     this.selectedInput = this.access
       ? Array.from(this.access.inputs.values()).find((input) => input.id === id) ?? null
       : null
@@ -182,6 +185,22 @@ export class SummitMidiEngine {
     return true
   }
 
+  sendModMatrixValue(slotIndex: number, field: ModMatrixField, value: number) {
+    if (!this.selectedOutput || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= 16) return false
+    const fieldIndex = { sourceA: 0, sourceB: 1, depth: 2, destination: 3 }[field]
+    this.sendNrpnMessages(0, 125, slotIndex)
+    this.sendNrpnMessages(slotIndex + 1, fieldIndex, value)
+    this.update({ activity: `Sent mod matrix slot ${slotIndex + 1} ${field}.` })
+    return true
+  }
+
+  private sendNrpnMessages(msb: number, lsb: number, value: number) {
+    const channelStatus = 0xb0 | (this.snapshot.channel - 1)
+    this.selectedOutput?.send([channelStatus, 99, msb])
+    this.selectedOutput?.send([channelStatus, 98, lsb])
+    this.selectedOutput?.send([channelStatus, 6, value])
+  }
+
   sendNoteOn(note: number, velocity = 100) {
     if (!this.selectedOutput) return false
     const midiNote = Math.min(127, Math.max(0, Math.round(note)))
@@ -211,7 +230,13 @@ export class SummitMidiEngine {
     summitParameters.forEach((parameter: ParameterDefinition) => {
       if (!parameter.unverifiedEncoding) this.sendParameter(parameter.id as ParameterId, parameter.defaultValue)
     })
-    this.update({ activity: 'Sent registered defaults to Summit.' })
+    usePatchStore.getState().modMatrix.forEach((slot, slotIndex) => {
+      this.sendModMatrixValue(slotIndex, 'sourceA', slot.sourceA)
+      this.sendModMatrixValue(slotIndex, 'sourceB', slot.sourceB)
+      this.sendModMatrixValue(slotIndex, 'depth', slot.depth)
+      this.sendModMatrixValue(slotIndex, 'destination', slot.destination)
+    })
+    this.update({ activity: 'Sent registered and community-mapped matrix defaults to Summit.' })
     return true
   }
 
@@ -262,10 +287,15 @@ export class SummitMidiEngine {
     }
     if (message.controller === 101 || message.controller === 100) {
       this.inboundNrpn = { msb: null, lsb: null }
+      this.inboundModMatrixSlot = null
       return
     }
     if (message.controller === 6 && this.inboundNrpn.msb !== null && this.inboundNrpn.lsb !== null) {
       this.lastWasNrpnDataEntry = true
+      if (this.inboundNrpn.msb === 0 && this.inboundNrpn.lsb === 125) {
+        this.inboundModMatrixSlot = message.value < 16 ? message.value : null
+        return
+      }
       const parameter = summitParameters.find(
         (candidate) => candidate.address.type === 'nrpn'
           && candidate.address.msb === this.inboundNrpn.msb
@@ -274,7 +304,18 @@ export class SummitMidiEngine {
       if (parameter) {
         usePatchStore.getState().setValue(parameter.id, message.value)
         this.update({ activity: `Received ${parameter.shortLabel}: ${message.value}.` })
+        this.inboundModMatrixSlot = null
+        return
       }
+      const field = this.inboundNrpn.lsb < 4
+        ? (['sourceA', 'sourceB', 'depth', 'destination'] as const)[this.inboundNrpn.lsb]
+        : undefined
+      const slotIndex = this.inboundNrpn.msb - 1
+      if (field && this.inboundModMatrixSlot !== null && slotIndex === this.inboundModMatrixSlot) {
+        usePatchStore.getState().setModMatrixValue(slotIndex, field, message.value)
+        this.update({ activity: `Received mod matrix slot ${slotIndex + 1} ${field}.` })
+      }
+      this.inboundModMatrixSlot = null
       return
     }
 

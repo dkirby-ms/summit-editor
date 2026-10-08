@@ -148,7 +148,9 @@ for (const { width, height, maxPageHeight } of viewports) {
       const toggles = page.locator('.section-toggle')
       for (let index = (await toggles.count()) - 1; index >= 0; index--) {
         const toggle = toggles.nth(index)
-        await toggle.click()
+        if (await toggle.getAttribute('aria-expanded') === 'true') {
+          await toggle.click()
+        }
         assert.equal(await toggle.getAttribute('aria-expanded'), 'false')
         for (const id of (await toggle.getAttribute('aria-controls')).split(' ')) {
           assert.equal(await page.locator(`[id="${id}"]`).isVisible(), false)

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { defaultModMatrix } from '../model/modMatrix'
 import { defaultPatchValues } from '../model/parameters'
 import { usePatchStore } from '../model/patchStore'
 import { SummitMidiEngine, type MidiAccessLike, type MidiInputLike, type MidiOutputLike } from './midiEngine'
@@ -18,7 +19,12 @@ function makePorts() {
 }
 
 describe('Summit MIDI engine', () => {
-  beforeEach(() => usePatchStore.setState({ values: { ...defaultPatchValues }, rawPatch: null, rawPatchSource: null }))
+  beforeEach(() => usePatchStore.setState({
+    values: { ...defaultPatchValues },
+    modMatrix: defaultModMatrix.map((slot) => ({ ...slot })),
+    rawPatch: null,
+    rawPatchSource: null,
+  }))
 
   it('connects, selects ports, and sends documented CC and NRPN messages', async () => {
     const { access, send } = makePorts()
@@ -75,6 +81,30 @@ describe('Summit MIDI engine', () => {
     input.onmidimessage?.({ data: new Uint8Array([0xb0, 6, 4]) })
 
     expect(usePatchStore.getState().values.osc1Wave).toBe(4)
+    expect(send).not.toHaveBeenCalled()
+  })
+
+  it('sends selected modulation-matrix NRPN fields and reflects inbound values without echoing', async () => {
+    const { access, input, send } = makePorts()
+    const engine = new SummitMidiEngine(async () => access, true)
+    await engine.connect()
+    engine.selectInput('summit-in')
+    engine.selectOutput('summit-out')
+    engine.setChannel(2)
+
+    expect(engine.sendModMatrixValue(2, 'destination', 18)).toBe(true)
+    expect(send).toHaveBeenNthCalledWith(1, [0xb1, 99, 0])
+    expect(send).toHaveBeenNthCalledWith(2, [0xb1, 98, 125])
+    expect(send).toHaveBeenNthCalledWith(3, [0xb1, 6, 2])
+    expect(send).toHaveBeenNthCalledWith(4, [0xb1, 99, 3])
+    expect(send).toHaveBeenNthCalledWith(5, [0xb1, 98, 3])
+    expect(send).toHaveBeenNthCalledWith(6, [0xb1, 6, 18])
+
+    send.mockClear()
+    for (const [controller, value] of [[99, 0], [98, 125], [6, 2], [99, 3], [98, 0], [6, 8]]) {
+      input.onmidimessage?.({ data: new Uint8Array([0xb1, controller, value]) })
+    }
+    expect(usePatchStore.getState().modMatrix[2].sourceA).toBe(8)
     expect(send).not.toHaveBeenCalled()
   })
 
