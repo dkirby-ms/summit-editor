@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:layout": "node --test tests/layout.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

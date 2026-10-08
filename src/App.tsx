@@ -1,13 +1,15 @@
-import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
   Cable,
+  ChevronDown,
+  ChevronRight,
   Download,
   FileInput,
+  Info,
   Minus,
   Music2,
   Plus,
   Power,
-  Radio,
   RefreshCw,
   RotateCcw,
   Send,
@@ -27,11 +29,38 @@ import {
 } from './model/parameters'
 import { usePatchStore } from './model/patchStore'
 
-function PanelModule({ id, title, className, children }: { id: string; title: string; className: string; children: ReactNode }) {
+function ControlHelp({ label, text }: { label: string; text: string }) {
+  const id = useId()
+  const [dismissed, setDismissed] = useState(false)
+  return (
+    <span className="help-container" onMouseEnter={() => setDismissed(false)} onFocus={() => setDismissed(false)} onKeyDown={(event) => {
+      if (event.key === 'Escape') setDismissed(true)
+    }}>
+      <button className="control-help" type="button" aria-label={`${label} help`} aria-describedby={id} onClick={() => setDismissed(false)}><Info aria-hidden="true" /></button>
+      <span id={id} role="tooltip" className={`control-tooltip${dismissed ? ' dismissed' : ''}`}>{text}</span>
+    </span>
+  )
+}
+
+function SectionToggle({ title, expanded, controls, onToggle }: { title: string; expanded: boolean; controls: string; onToggle: () => void }) {
+  return (
+    <button className="section-toggle" type="button" aria-expanded={expanded} aria-controls={controls} onClick={onToggle}>
+      {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+      <span>{title}</span>
+    </button>
+  )
+}
+
+function PanelModule({ id, title, className, children, help, eyebrow }: { id: string; title: string; className: string; children: ReactNode; help?: string; eyebrow?: string }) {
+  const [expanded, setExpanded] = useState(true)
   return (
     <section className={`peak-module ${className}`} aria-labelledby={id}>
-      <h2 id={id} className="peak-module-title">{title}</h2>
-      {children}
+      {eyebrow && <span className="eyebrow">{eyebrow}</span>}
+      <div className="module-heading">
+        <h2 id={id} className="peak-module-title"><SectionToggle title={title} expanded={expanded} controls={`${id}-content`} onToggle={() => setExpanded((current) => !current)} /></h2>
+        {help && <ControlHelp label={title} text={help} />}
+      </div>
+      <div id={`${id}-content`} hidden={!expanded}>{children}</div>
     </section>
   )
 }
@@ -46,18 +75,15 @@ function parametersInSection(section: string) {
   return parameterList.filter((parameter) => parameter.section === section)
 }
 
+const mixerOrder: readonly string[] = ['osc1Mix', 'ringModMix', 'osc2Mix', 'noiseMix', 'osc3Mix', 'vcaLevel']
+const mixerParameters = parametersInSection('Mixer').sort((a, b) => mixerOrder.indexOf(a.id) - mixerOrder.indexOf(b.id))
+
 function ParameterGroup({ parameters, disabled }: { parameters: readonly ParameterDefinition[]; disabled?: (parameter: ParameterDefinition) => boolean }) {
   return <>{parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} disabled={disabled?.(parameter)} />)}</>
 }
 
-const whiteKeys = [0, 2, 4, 5, 7, 9, 11, 12]
-const blackKeys = [
-  { offset: 1, position: 12.5 },
-  { offset: 3, position: 25 },
-  { offset: 6, position: 50 },
-  { offset: 8, position: 62.5 },
-  { offset: 10, position: 75 },
-]
+const keyboardOctaves = 5
+const maxKeyboardOctave = Math.floor((127 - keyboardOctaves * 12) / 12) - 1
 const noteNames = ['C', 'C sharp', 'D', 'D sharp', 'E', 'F', 'F sharp', 'G', 'G sharp', 'A', 'A sharp', 'B']
 
 function ParameterControl({ parameter, disabled = false }: { parameter: ParameterDefinition; disabled?: boolean }) {
@@ -72,17 +98,25 @@ function ParameterControl({ parameter, disabled = false }: { parameter: Paramete
   }
 
   return (
-    <div className={`parameter-control${parameter.prominent ? ' prominent' : ''}${disabled ? ' disabled' : ''}`}>
+    <div
+      className={`parameter-control${parameter.prominent ? ' prominent' : ''}${disabled ? ' disabled' : ''}`}
+      onDoubleClick={() => update(parameter.defaultValue)}
+      onKeyDown={(event) => {
+        if (event.key !== 'Delete' || disabled) return
+        event.preventDefault()
+        update(parameter.defaultValue)
+      }}
+    >
       <div className="parameter-heading">
         <label id={`${parameter.id}-label`} htmlFor={parameter.valueLabels || parameter.fader ? parameter.id : undefined}>{parameter.shortLabel}</label>
-        <output>{getParameterValueLabel(parameter, value)}</output>
+        {(parameter.valueLabels || parameter.fader) && <output>{getParameterValueLabel(parameter, value)}</output>}
       </div>
       {parameter.valueLabels ? (
-        <select id={parameter.id} value={value} disabled={disabled} onChange={(event) => update(Number(event.target.value))}>
+        <select id={parameter.id} value={value} disabled={disabled} aria-description="Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))}>
           {parameter.valueLabels.map((label, index) => <option key={index} value={parameter.min + index}>{label}</option>)}
         </select>
       ) : parameter.fader ? (
-        <input id={parameter.id} type="range" min={parameter.min} max={parameter.max} value={value} disabled={disabled} aria-label={parameter.label} aria-orientation="vertical" onChange={(event) => update(Number(event.target.value))} />
+        <input id={parameter.id} type="range" min={parameter.min} max={parameter.max} value={value} disabled={disabled} aria-label={parameter.label} aria-orientation="vertical" aria-description="Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))} />
       ) : (
         <RotaryControl
           id={parameter.id}
@@ -91,11 +125,13 @@ function ParameterControl({ parameter, disabled = false }: { parameter: Paramete
           max={parameter.max}
           value={value}
           valueText={getParameterValueLabel(parameter, value)}
+          center={parameter.displayOffset}
           large={parameter.prominent}
           disabled={disabled}
           onChange={update}
         />
       )}
+      {!parameter.valueLabels && !parameter.fader && <output className="rotary-value" htmlFor={parameter.id}>{getParameterValueLabel(parameter, value)}</output>}
       <span className="midi-address">
         {parameter.address.type === 'cc' ? `CC ${parameter.address.controller}` : `NRPN ${parameter.address.msb}:${parameter.address.lsb}`}
       </span>
@@ -110,6 +146,7 @@ function RotaryControl({
   max,
   value,
   valueText,
+  center,
   large = false,
   disabled = false,
   onChange,
@@ -120,13 +157,16 @@ function RotaryControl({
   max: number
   value: number
   valueText: string
+  center?: number
   large?: boolean
   disabled?: boolean
   onChange: (value: number) => void
 }) {
   const dragStart = useRef<{ pointerId: number; y: number; value: number } | null>(null)
   const range = max - min
-  const angle = range === 0 ? 0 : -135 + ((value - min) / range) * 270
+  const angle = range === 0 ? 0 : center !== undefined && center > min && center < max
+    ? value < center ? ((value - center) / (center - min)) * 135 : ((value - center) / (max - center)) * 135
+    : -135 + ((value - min) / range) * 270
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (disabled) return
@@ -172,7 +212,7 @@ function RotaryControl({
       aria-valuemax={max}
       aria-valuenow={value}
       aria-valuetext={valueText}
-      aria-description="Drag up or down to adjust. Use arrow keys to change by one, or Shift with an arrow key to change by ten."
+      aria-description="Drag up or down to adjust. Use arrow keys to change by one, or Shift with an arrow key to change by ten. Double-click or press Delete to restore the default."
       onKeyDown={handleKeyDown}
       onPointerDown={(event) => {
         event.preventDefault()
@@ -199,9 +239,14 @@ function RotaryControl({
   )
 }
 
-function EnvelopeView() {
-  const values = usePatchStore((state) => state.values)
-  const { ampAttack: attack, ampDecay: decay, ampSustain: sustain, ampRelease: release } = values
+function EnvelopeGraph({ id, title, attack, decay, sustain, release }: {
+  id: string
+  title: string
+  attack: number
+  decay: number
+  sustain: number
+  release: number
+}) {
   const attackX = 30 + (attack / 127) * 80
   const decayX = attackX + 30 + (decay / 127) * 70
   const sustainY = 156 - (sustain / 127) * 116
@@ -209,24 +254,28 @@ function EnvelopeView() {
   const path = `M 24 156 L ${attackX} 40 L ${decayX} ${sustainY} L 270 ${sustainY} L ${releaseX} 156`
 
   return (
+    <svg className="envelope-graph" viewBox="0 0 380 190" role="img" aria-labelledby={`${id}-title`} aria-describedby={`${id}-summary`}>
+      <title id={`${id}-title`}>{title}</title>
+      <desc id={`${id}-summary`}>Attack {attack}, decay {decay}, sustain {sustain}, release {release}</desc>
+      <defs><pattern id={`${id}-grid`} width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" className="grid-line" /></pattern></defs>
+      <rect width="380" height="190" fill={`url(#${id}-grid)`} />
+      <path d={path} className="envelope-fill" />
+      <path d={path} className="envelope-line" />
+      <circle cx={attackX} cy="40" r="5" />
+      <circle cx={decayX} cy={sustainY} r="5" />
+      <circle cx="270" cy={sustainY} r="5" />
+    </svg>
+  )
+}
+
+function EnvelopeView() {
+  const values = usePatchStore((state) => state.values)
+  return (
     <PanelModule id="envelope-title" title="Amp envelope" className="amp-module">
       <div className="envelope-controls">
         <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => parameter.fader)} />
       </div>
-      <svg className="envelope-graph" viewBox="0 0 380 190" role="img" aria-labelledby="envelope-graph-title envelope-summary">
-        <title id="envelope-graph-title">Amplifier envelope curve</title>
-        <desc id="envelope-summary">Attack {attack}, decay {decay}, sustain {sustain}, release {release}</desc>
-        <defs><pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 L 0 0 0 24" fill="none" className="grid-line" /></pattern></defs>
-        <rect width="380" height="190" fill="url(#grid)" />
-        <path d={path} className="envelope-fill" />
-        <path d={path} className="envelope-line" />
-        <circle cx={attackX} cy="40" r="5" />
-        <circle cx={decayX} cy={sustainY} r="5" />
-        <circle cx="270" cy={sustainY} r="5" />
-      </svg>
-      <div className="envelope-readout" aria-hidden="true">
-        <span><b>A</b>{attack}</span><span><b>D</b>{decay}</span><span><b>S</b>{sustain}</span><span><b>R</b>{release}</span>
-      </div>
+      <EnvelopeGraph id="amp-graph" title="Amplifier envelope curve" attack={values.ampAttack} decay={values.ampDecay} sustain={values.ampSustain} release={values.ampRelease} />
       <div className="parameter-grid envelope-options">
         <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => !parameter.fader)} />
       </div>
@@ -237,9 +286,10 @@ function EnvelopeView() {
 function ModEnvelopeModule() {
   const [selected, setSelected] = useState<1 | 2>(1)
   const parameters = parametersInSection(`Mod envelope ${selected}`)
+  const values = usePatchStore((state) => state.values)
 
   return (
-    <PanelModule id="mod-envelopes-title" title="Mod envelopes" className="mod-envelopes-module">
+    <PanelModule id="mod-envelopes-title" title="Mod envelopes" className="mod-envelopes-module" help="Mod envelope depths are set per destination in the oscillator and filter modules.">
       <div className="lfo-selector" role="group" aria-label="Select mod envelope">
         {([1, 2] as const).map((envelope) => (
           <button key={envelope} type="button" aria-pressed={selected === envelope} onClick={() => setSelected(envelope)}>
@@ -250,10 +300,17 @@ function ModEnvelopeModule() {
       <div className="envelope-controls">
         <ParameterGroup parameters={parameters.filter((parameter) => parameter.fader)} />
       </div>
+      <EnvelopeGraph
+        id="mod-graph"
+        title={`Mod envelope ${selected} curve`}
+        attack={selected === 1 ? values.modEnv1Attack : values.modEnv2Attack}
+        decay={selected === 1 ? values.modEnv1Decay : values.modEnv2Decay}
+        sustain={selected === 1 ? values.modEnv1Sustain : values.modEnv2Sustain}
+        release={selected === 1 ? values.modEnv1Release : values.modEnv2Release}
+      />
       <div className="parameter-grid envelope-options">
         <ParameterGroup parameters={parameters.filter((parameter) => !parameter.fader)} />
       </div>
-      <p className="module-note">Mod envelope depths are set per destination in the oscillator and filter modules.</p>
     </PanelModule>
   )
 }
@@ -271,7 +328,9 @@ function LfoModule() {
   }
 
   return (
-    <PanelModule id="lfo-title" title="LFOs" className="lfo-module">
+    <PanelModule id="lfo-title" title="LFOs" className="lfo-module" help={selectedLfo <= 2
+      ? 'Rate applies in Low and High range; Sync rate applies when Range is Sync.'
+      : `LFO ${selectedLfo} wave and rate have no published MIDI address, so only phase, slew and fade time are editable.`}>
       <div className="lfo-selector" role="group" aria-label="Select LFO">
         {[1, 2, 3, 4].map((lfo) => (
           <button
@@ -287,11 +346,6 @@ function LfoModule() {
       <div className="parameter-grid" id="lfo-controls">
         <ParameterGroup parameters={parameters} disabled={isDisabled} />
       </div>
-      <p className="module-note">
-        {selectedLfo <= 2
-          ? `Rate applies in Low and High range; Sync rate applies when Range is Sync.`
-          : `LFO ${selectedLfo} wave and rate have no published MIDI address, so only phase, slew and fade time are editable.`}
-      </p>
     </PanelModule>
   )
 }
@@ -307,21 +361,18 @@ function FilterModule() {
 
   return (
     <PanelModule id="filter-title" title="Filter" className="filter-module">
-      {featured.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}
-      <div className="parameter-grid">{others.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}</div>
-      <div className="dual-filter" role="group" aria-labelledby="dual-filter-title">
-        <h3 id="dual-filter-title" className="sub-module-title">Dual filter</h3>
+      <div className="parameter-grid filter-main"><ParameterGroup parameters={[...featured, ...others]} /></div>
+      <div className="dual-filter" role="group" aria-labelledby="dual-filter-title" hidden={!isDual}>
+        <div className="module-heading"><h3 id="dual-filter-title" className="sub-module-title">Dual filter</h3><ControlHelp label="Dual filter" text={`${isDual ? 'Combinations: ">" runs in series, "+" runs in parallel.' : 'Set Shape to Dual to edit the filter combination and separation.'} The dual combination and separation NRPNs are not in Novation's published MIDI table, so they need hardware verification.`} /></div>
         <div className="parameter-grid">
           {summitParameters.filter((parameter) => parameter.section === 'Dual filter').map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} disabled={!isDual} />)}
         </div>
-        <p className="module-note">{isDual ? 'Combinations: ">" runs in series, "+" runs in parallel.' : 'Set Shape to Dual to edit the filter combination and separation.'} The dual combination and separation NRPNs are not in Novation's published MIDI table, so they need hardware verification.</p>
       </div>
       <div className="filter-modulation" role="group" aria-labelledby="filter-modulation-title">
-        <h3 id="filter-modulation-title" className="sub-module-title">Modulation</h3>
+        <div className="module-heading"><h3 id="filter-modulation-title" className="sub-module-title">Modulation</h3><ControlHelp label="Filter modulation" text="Each source has its own depth. Divergence is in the Voice menu." /></div>
         <div className="parameter-grid">
           <ParameterGroup parameters={parametersInSection('Filter modulation')} />
         </div>
-        <p className="module-note">Each depth is shown separately, so the panel's envelope-select button is not needed. Divergence is in the Voice menu.</p>
       </div>
     </PanelModule>
   )
@@ -352,7 +403,7 @@ function MenuSettingsModule() {
   }
 
   return (
-    <PanelModule id="menu-settings-title" title="Voice & oscillator menus" className="menu-module">
+    <PanelModule id="menu-settings-title" title="Voice & oscillator menus" className="menu-module" help="Menu settings follow the Summit user guide. Noise high-pass is unverified and excluded from hardware reset. Tuning tables are not yet implemented.">
       <div className="lfo-selector menu-tabs" role="tablist" aria-label="Menu page">
         {menuTabs.map((tab, index) => (
           <button
@@ -377,18 +428,47 @@ function MenuSettingsModule() {
           </div>
         </div>
       ))}
-      <p className="module-note">Settings that live in the Summit's Voice and Osc menus rather than on panel knobs. Ranges and value orders follow the MIDI parameter list in Novation's Summit user guide. The noise high-pass NRPN is not in that list, so Reset defaults does not send it. Tuning table selection is not yet implemented.</p>
     </PanelModule>
   )
 }
 
 function VirtualKeyboard({ enabled }: { enabled: boolean }) {
-  const [octave, setOctave] = useState(4)
+  const keybedRef = useRef<HTMLDivElement>(null)
+  const [visibleOctaves, setVisibleOctaves] = useState(keyboardOctaves)
+  const [expanded, setExpanded] = useState(true)
+  const [octave, setOctave] = useState(2)
   const [velocity, setVelocity] = useState(100)
   const [activeNotes, setActiveNotes] = useState<Set<number>>(() => new Set())
   const baseNote = (octave + 1) * 12
+  const whiteKeys = [
+    ...Array.from({ length: visibleOctaves }, (_, index) => [0, 2, 4, 5, 7, 9, 11].map((offset) => index * 12 + offset)).flat(),
+    visibleOctaves * 12,
+  ]
+  const blackKeys = Array.from({ length: visibleOctaves }, (_, index) =>
+    [1, 3, 6, 8, 10].map((offset, keyIndex) => ({
+      offset: index * 12 + offset,
+      position: ((index * 7 + [1, 2, 4, 5, 6][keyIndex]) / whiteKeys.length) * 100,
+    })),
+  ).flat()
 
   useEffect(() => () => { midiEngine.allNotesOff() }, [])
+  useEffect(() => {
+    const keybed = keybedRef.current
+    if (!keybed || typeof ResizeObserver === 'undefined') return
+    let previousOctaves = keyboardOctaves
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width === 0) return
+      // A black key is 70% of a white key and needs a 24px tap target.
+      const nextOctaves = Math.max(1, Math.min(keyboardOctaves, Math.floor((entry.contentRect.width * 0.7 / 24 - 1) / 7)))
+      if (nextOctaves === previousOctaves) return
+      previousOctaves = nextOctaves
+      midiEngine.allNotesOff()
+      setActiveNotes(new Set())
+      setVisibleOctaves(nextOctaves)
+    })
+    observer.observe(keybed)
+    return () => observer.disconnect()
+  }, [])
 
   function noteLabel(offset: number) {
     const midiNote = baseNote + offset
@@ -431,7 +511,7 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
         key={offset}
         type="button"
         className={`piano-key ${kind}-key${activeNotes.has(note) ? ' active-key' : ''}`}
-        style={position === undefined ? undefined : { left: `${position}%` }}
+        style={position === undefined ? undefined : { left: `${position}%`, width: `${70 / whiteKeys.length}%` }}
         aria-label={`Play ${noteLabel(offset)}`}
         aria-pressed={activeNotes.has(note)}
         disabled={!enabled}
@@ -454,23 +534,28 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
         <div className="keyboard-toolbar">
           <div className="keyboard-heading">
             <Music2 aria-hidden="true" />
-            <div><span className="eyebrow">Performance</span><h2 id="keyboard-title">Virtual keyboard</h2></div>
+            <div><span className="eyebrow">Performance</span><h2 id="keyboard-title"><SectionToggle title="Virtual keyboard" expanded={expanded} controls="keyboard-content keyboard-options" onToggle={() => {
+              if (expanded) stopAllNotes()
+              setExpanded((current) => !current)
+            }} /></h2></div>
           </div>
-          <div className="keyboard-controls">
+          <div id="keyboard-options" className="keyboard-controls" hidden={!expanded}>
             <div className="octave-control" aria-label="Keyboard octave">
               <button type="button" onClick={() => changeOctave(octave - 1)} disabled={octave <= 1} aria-label="Decrease octave"><Minus aria-hidden="true" /></button>
               <output aria-live="polite">Octave {octave}</output>
-              <button type="button" onClick={() => changeOctave(octave + 1)} disabled={octave >= 7} aria-label="Increase octave"><Plus aria-hidden="true" /></button>
+              <button type="button" onClick={() => changeOctave(octave + 1)} disabled={octave >= maxKeyboardOctave} aria-label="Increase octave"><Plus aria-hidden="true" /></button>
             </div>
             <label className="velocity-control"><span>Velocity</span><input type="range" min="1" max="127" value={velocity} onChange={(event) => setVelocity(Number(event.target.value))} /><output>{velocity}</output></label>
             <button className="panic-button" type="button" onClick={stopAllNotes} disabled={!enabled}>All notes off</button>
           </div>
         </div>
-        <p className="keyboard-status" role="status">{enabled ? 'Ready on selected MIDI output.' : 'Select a MIDI output to play.'}</p>
-        <div className="keyboard-scroll" tabIndex={0} aria-label="Piano keyboard">
-          <div className="piano-bed">
-            <div className="white-keys">{whiteKeys.map((offset) => keyButton(offset, 'white'))}</div>
-            <div className="black-keys">{blackKeys.map(({ offset, position }) => keyButton(offset, 'black', position))}</div>
+        <div id="keyboard-content" hidden={!expanded}>
+          <p className="keyboard-status" role="status">{enabled ? 'Ready on selected MIDI output.' : 'Select a MIDI output to play.'}</p>
+          <div className="keyboard-keybed" role="group" aria-label="Piano keyboard">
+            <div className="piano-bed" ref={keybedRef}>
+              <div className="white-keys">{whiteKeys.map((offset) => keyButton(offset, 'white'))}</div>
+              <div className="black-keys">{blackKeys.map(({ offset, position }) => keyButton(offset, 'black', position))}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -479,6 +564,7 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
 }
 
 function App() {
+  const [debug, setDebug] = useState(false)
   const midi = useMidi()
   const rawPatch = usePatchStore((state) => state.rawPatch)
   const rawPatchSource = usePatchStore((state) => state.rawPatchSource)
@@ -521,13 +607,13 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell${debug ? ' debug-mode' : ''}`}>
       <header className="app-header">
         <div className="brand-block">
           <div className="brand-mark"><SlidersHorizontal aria-hidden="true" /></div>
           <div><p>NOVATION</p><h1>SUMMIT <span>PATCH LAB</span></h1></div>
         </div>
-        <div className="patch-identity"><span>Current workspace</span><strong>PEAK-STYLE / SINGLE PART</strong></div>
+        <div className="patch-identity"><strong>PEAK-STYLE / SINGLE PART</strong></div>
       </header>
 
       <section className="connection-strip" aria-labelledby="connection-title">
@@ -548,7 +634,7 @@ function App() {
       <main>
         <div className="panel-workspace">
           <div className="panel-intro">
-            <div><span className="eyebrow">SUMMIT sound engine</span><h2>One part. One PEAK-style panel.</h2></div>
+            <div><span className="eyebrow">SUMMIT sound engine</span></div>
             <p>Editing uses the selected MIDI channel. Independent A/B layer editing is not yet implemented.</p>
           </div>
           <div className="peak-panel" aria-label="PEAK-style synth panel">
@@ -556,8 +642,7 @@ function App() {
               <PanelModule id="master-title" title="Master / Animate" className="master-module">
                 <UnavailableControls>Master volume and Animate switches.</UnavailableControls>
               </PanelModule>
-              <section className="patch-panel" aria-labelledby="patch-panel-title">
-                <div className="section-title-row"><div><span className="eyebrow">Raw SysEx</span><h2 id="patch-panel-title">Patch transfer</h2></div><Radio aria-hidden="true" /></div>
+              <PanelModule id="patch-panel-title" title="Patch transfer" className="patch-panel" eyebrow="Raw SysEx">
                 <p className="patch-state">{rawPatch ? `${rawPatch.length} bytes / ${rawPatchSource === 'device' ? 'Captured' : 'Imported'}` : fileMessage}</p>
                 <div className="patch-actions">
                   <button type="button" onClick={() => midiEngine.requestEditBuffer()} disabled={!midi.selectedOutputId} title="Experimental: request the Summit edit buffer"><Download aria-hidden="true" /> Fetch <span>EXP</span></button>
@@ -566,35 +651,33 @@ function App() {
                   <button type="button" onClick={exportPatch} disabled={!rawPatch}><FileInput aria-hidden="true" /> Export</button>
                   <button type="button" onClick={() => rawPatch && midiEngine.sendSysex(rawPatch)} disabled={!rawPatch || !midi.selectedOutputId}><Send aria-hidden="true" /> Send</button>
                 </div>
-                <p className="patch-note">Fetch framing is experimental pending Summit hardware validation. Imported and captured patches remain raw.</p>
-              </section>
+              </PanelModule>
             </div>
-            <PanelModule id="arp-title" title="Arp" className="arp-module">
-              <UnavailableControls>Gate, key latch and arpeggiator on/off.</UnavailableControls>
-            </PanelModule>
             <LfoModule />
-            <PanelModule id="glide-title" title="Glide" className="glide-module">
-              <div className="parameter-grid"><ParameterGroup parameters={parametersInSection('Glide')} /></div>
-            </PanelModule>
             <EnvelopeView />
             <ModEnvelopeModule />
             <div className="oscillator-bank">
               {[1, 2, 3].map((oscillator) => {
                 const parameters = summitParameters.filter((parameter) => parameter.section === `Oscillator ${oscillator}`)
                 return (
-                  <PanelModule key={oscillator} id={`oscillator-${oscillator}-title`} title={`Oscillator ${oscillator}`} className="oscillator-module">
+                  <PanelModule key={oscillator} id={`oscillator-${oscillator}-title`} title={`Oscillator ${oscillator}`} className="oscillator-module" help="Each source has its own depth, centred at 0.">
                     <div className="parameter-grid">{parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}</div>
-                    <p className="module-note">Mod depths are centred at 0. Each source has its own depth, so the panel's shape-source button is not needed.</p>
                   </PanelModule>
                 )
               })}
             </div>
             <PanelModule id="mixer-title" title="Mixer" className="mixer-module">
-              <div className="parameter-grid">{summitParameters.filter((parameter) => parameter.section === 'Mixer').map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} />)}</div>
+              <div className="parameter-grid"><ParameterGroup parameters={mixerParameters} /></div>
             </PanelModule>
             <FilterModule />
-            <section className="effects-bank" aria-labelledby="effects-title">
-              <h2 id="effects-title" className="visually-hidden">Effects</h2>
+            <PanelModule id="arp-title" title="Arp" className="arp-module">
+              <UnavailableControls>Gate, key latch and arpeggiator on/off.</UnavailableControls>
+            </PanelModule>
+            <PanelModule id="glide-title" title="Glide" className="glide-module">
+              <div className="parameter-grid"><ParameterGroup parameters={parametersInSection('Glide')} /></div>
+            </PanelModule>
+            <PanelModule id="effects-title" title="Effects" className="effects-module" help="Effect levels only. Other effect controls and bypass are not yet implemented.">
+              <div className="effects-bank">
               <div className="effects-top-row">
                 {summitParameters.filter((parameter) => parameter.id === 'distortionLevel' || parameter.id === 'chorusLevel').map((parameter) => (
                   <PanelModule key={parameter.id} id={`${parameter.id}-title`} title={parameter.shortLabel} className="effect-module">
@@ -607,8 +690,8 @@ function App() {
                   <ParameterControl parameter={parameter} />
                 </PanelModule>
               ))}
-              <p className="module-note">Effect levels only. Other effect controls and bypass are not yet implemented.</p>
-            </section>
+              </div>
+            </PanelModule>
             <MenuSettingsModule />
             <div className="panel-caption"><Waves aria-hidden="true" /><span>PEAK-inspired layout / SUMMIT MIDI</span><span>Documented controls only</span></div>
           </div>
@@ -620,7 +703,10 @@ function App() {
       <footer className="app-footer">
         <div><Cable aria-hidden="true" /><span>Web MIDI / SysEx</span></div>
         <p>Best in current Chrome, Edge, or Firefox on desktop. HTTPS or localhost required.</p>
-        <button type="button" onClick={resetPatch}><RotateCcw aria-hidden="true" /> Reset defaults</button>
+        <div className="footer-actions">
+          <button type="button" aria-pressed={debug} onClick={() => setDebug((current) => !current)} title="Show CC and NRPN addresses">Debug</button>
+          <button type="button" onClick={resetPatch}><RotateCcw aria-hidden="true" /> Reset defaults</button>
+        </div>
       </footer>
     </div>
   )
