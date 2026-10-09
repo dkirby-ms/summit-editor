@@ -17,6 +17,12 @@ npm run dev
 
 Open the localhost address in Chrome or Edge.
 
+## Publish
+
+The GitHub Actions workflow deploys the app to GitHub Pages on pushes to `master`;
+you can also run it manually from the Actions tab. In the repository settings,
+set **Pages** → **Build and deployment** → **Source** to **GitHub Actions**.
+
 ## Connect
 
 1. Connect and power on the Summit.
