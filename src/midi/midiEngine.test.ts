@@ -20,10 +20,14 @@ function makePorts() {
 
 describe('Summit MIDI engine', () => {
   beforeEach(() => usePatchStore.setState({
+    activeProfileId: 'summit',
+    profileValues: { summit: { ...defaultPatchValues } },
     values: { ...defaultPatchValues },
-    modMatrix: defaultModMatrix.map((slot) => ({ ...slot })),
-    rawPatch: null,
-    rawPatchSource: null,
+    summitState: {
+      modMatrix: defaultModMatrix.map((slot) => ({ ...slot })),
+      rawPatch: null,
+      rawPatchSource: null,
+    },
   }))
 
   it('connects, selects ports, and sends documented CC and NRPN messages', async () => {
@@ -51,6 +55,23 @@ describe('Summit MIDI engine', () => {
     expect(send).toHaveBeenCalledWith([0xb1, 98, 38])
   })
 
+  it('requests SysEx only for the active hardware profile', async () => {
+    const { access } = makePorts()
+    const requestOptions: Array<{ sysex: boolean }> = []
+    const requestAccess = vi.fn(async (options: { sysex: boolean }) => {
+      requestOptions.push(options)
+      return access
+    })
+    const engine = new SummitMidiEngine(requestAccess, true)
+
+    await engine.connect()
+    usePatchStore.getState().setActiveProfile('web-synth')
+    await engine.connect()
+
+    expect(requestOptions).toEqual([{ sysex: true }, { sysex: false }])
+    engine.destroy()
+  })
+
   it('reflects inbound CC and captures valid SysEx without echoing', async () => {
     const { access, input, send } = makePorts()
     const engine = new SummitMidiEngine(async () => access, true)
@@ -65,8 +86,32 @@ describe('Summit MIDI engine', () => {
 
     const patch = new Uint8Array([0xf0, 0x00, 0x20, 0x29, 0x01, 0xf7])
     input.onmidimessage?.({ data: patch })
-    expect(Array.from(usePatchStore.getState().rawPatch!)).toEqual(Array.from(patch))
-    expect(usePatchStore.getState().rawPatchSource).toBe('device')
+    expect(Array.from(usePatchStore.getState().summitState.rawPatch!)).toEqual(Array.from(patch))
+    expect(usePatchStore.getState().summitState.rawPatchSource).toBe('device')
+  })
+
+  it('publishes selected-channel input note events, including zero-velocity release and panic', async () => {
+    const { access, input } = makePorts()
+    const engine = new SummitMidiEngine(async () => access, true)
+    const listener = vi.fn()
+    await engine.connect()
+    engine.setChannel(2)
+    engine.subscribeToInputNotes(listener)
+    engine.selectInput('summit-in')
+
+    input.onmidimessage?.({ data: new Uint8Array([0x91, 60, 90]) })
+    input.onmidimessage?.({ data: new Uint8Array([0x91, 60, 0]) })
+    input.onmidimessage?.({ data: new Uint8Array([0x81, 64, 32]) })
+    input.onmidimessage?.({ data: new Uint8Array([0xb1, 123, 0]) })
+    input.onmidimessage?.({ data: new Uint8Array([0x90, 72, 100]) })
+
+    expect(listener.mock.calls.map(([event]) => event)).toEqual([
+      { type: 'noteOn', note: 60, velocity: 90 },
+      { type: 'noteOff', note: 60 },
+      { type: 'noteOff', note: 64 },
+      { type: 'allNotesOff' },
+    ])
+    engine.destroy()
   })
 
   it('assembles inbound NRPN messages and reflects the registered parameter without echoing', async () => {
@@ -104,7 +149,7 @@ describe('Summit MIDI engine', () => {
     for (const [controller, value] of [[99, 0], [98, 125], [6, 2], [99, 3], [98, 0], [6, 8]]) {
       input.onmidimessage?.({ data: new Uint8Array([0xb1, controller, value]) })
     }
-    expect(usePatchStore.getState().modMatrix[2].sourceA).toBe(8)
+    expect(usePatchStore.getState().summitState.modMatrix[2].sourceA).toBe(8)
     expect(send).not.toHaveBeenCalled()
   })
 
@@ -146,7 +191,7 @@ describe('Summit MIDI engine', () => {
     await engine.connect()
     engine.selectInput('summit-in')
     input.onmidimessage?.({ data: new Uint8Array([0xf0, 0x01]) })
-    expect(usePatchStore.getState().rawPatch).toBeNull()
+    expect(usePatchStore.getState().summitState.rawPatch).toBeNull()
     engine.selectInput('')
     expect(input.onmidimessage).toBeNull()
 

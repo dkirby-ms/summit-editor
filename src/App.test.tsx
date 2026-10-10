@@ -1,26 +1,35 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { defaultModMatrix, modMatrixDestinations, modMatrixSources } from './model/modMatrix'
 import { defaultPatchValues, summitParameters } from './model/parameters'
 import { usePatchStore } from './model/patchStore'
-import { midiEngine } from './midi/midiEngine'
+import { midiEngine, type MidiInputNoteEvent } from './midi/midiEngine'
+import { webAudioSynth } from './audio/webAudioSynth'
+import { webSynthPresets } from './model/webSynthProfile'
 
 describe('Zinth', () => {
   beforeEach(() => usePatchStore.setState({
+    activeProfileId: 'summit',
+    profileValues: { summit: { ...defaultPatchValues } },
     values: { ...defaultPatchValues },
-    modMatrix: defaultModMatrix.map((slot) => ({ ...slot })),
-    rawPatch: null,
-    rawPatchSource: null,
+    summitState: {
+      modMatrix: defaultModMatrix.map((slot) => ({ ...slot })),
+      rawPatch: null,
+      rawPatchSource: null,
+    },
   }))
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('places every existing parameter once in its PEAK panel section', () => {
     render(<App />)
+    expect(screen.getByRole('combobox', { name: 'Synth profile' })).toHaveDisplayValue('Novation Summit')
+    expect(screen.getByRole('option', { name: 'Novation Summit' })).toHaveValue('summit')
     const behindSelector = /^(lfo[234]|modEnv2)/
     for (const parameter of summitParameters) {
       expect(document.querySelectorAll(`[id="${parameter.id}"]`)).toHaveLength(behindSelector.test(parameter.id) ? 0 : 1)
@@ -34,6 +43,168 @@ describe('Zinth', () => {
     for (const name of ['Distortion', 'Chorus', 'Delay', 'Reverb']) {
       expect(within(screen.getByRole('region', { name })).getByLabelText(`${name} level`)).toBeInTheDocument()
     }
+  })
+
+  it('switches the active profile using its stable ID and keeps profile controls separate', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+
+    expect(usePatchStore.getState().activeProfileId).toBe('web-synth')
+    expect(screen.getByRole('region', { name: 'Built-in Web Synth' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Oscillator 1' })).toBeInTheDocument()
+    expect(screen.queryByLabelText('Oscillator 1 manual shape')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Synth profile' })).toHaveDisplayValue('Built-in Web Synth')
+  })
+
+  it('renders web-synth controls and applies complete presets without Summit-only actions', async () => {
+    const user = userEvent.setup()
+    const start = vi.spyOn(webAudioSynth, 'start').mockResolvedValue(true)
+    const setParameters = vi.spyOn(webAudioSynth, 'setParameters')
+    render(<App />)
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+    expect(screen.getByRole('region', { name: 'Built-in Web Synth' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Oscillator 1' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'LFO' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Modulation matrix' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Connect MIDI' })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Filter cutoff' })).toHaveClass('rotary-control')
+    expect(screen.getByRole('combobox', { name: 'Oscillator 1 waveform' })).toBeInTheDocument()
+    for (const section of ['Amp envelope', 'Filter envelope']) {
+      const envelope = within(screen.getByRole('region', { name: section }))
+      expect(envelope.getByRole('img', { name: /envelope curve/i })).toBeInTheDocument()
+      for (const stage of ['Attack', 'Decay', 'Sustain', 'Release']) {
+        const suffix = section === 'Amp envelope' ? 'Amplifier' : 'Filter'
+        expect(envelope.getByRole('slider', { name: `${suffix} ${stage.toLowerCase()}` })).toHaveAttribute('aria-orientation', 'vertical')
+      }
+    }
+
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Web synth preset' }), 'soft-pad')
+    expect(usePatchStore.getState().values).toEqual(webSynthPresets[0].values)
+    await waitFor(() => expect(setParameters).toHaveBeenLastCalledWith(webSynthPresets[0].values))
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Filter cutoff' }), { key: 'ArrowUp' })
+    expect(usePatchStore.getState().values.filterCutoff).toBe(3201)
+    fireEvent.change(screen.getByRole('slider', { name: 'Amplifier attack' }), { target: { value: '1000' } })
+    expect(usePatchStore.getState().values.ampAttack).toBe(1000)
+    expect(screen.getByRole('img', { name: 'Amplifier envelope curve' })).toHaveAccessibleDescription(/Attack 1000/)
+    expect(screen.getByRole('combobox', { name: 'Web synth preset' })).toHaveValue('')
+    await waitFor(() => expect(setParameters).toHaveBeenLastCalledWith(expect.objectContaining({ filterCutoff: 3201 })))
+    await user.click(screen.getByRole('button', { name: 'Start audio' }))
+    expect(start).toHaveBeenCalledTimes(1)
+  })
+
+  it('starts and releases Web Synth notes with Enter and Space on virtual piano keys', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(webAudioSynth, 'getSnapshot').mockReturnValue({ status: 'ready', error: null })
+    const noteOn = vi.spyOn(webAudioSynth, 'noteOn').mockReturnValue(true)
+    const noteOff = vi.spyOn(webAudioSynth, 'noteOff').mockReturnValue(true)
+    render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+
+    const key = screen.getByRole('button', { name: 'Play C 2' })
+    key.focus()
+    fireEvent.keyDown(key, { key: 'Enter' })
+    expect(noteOn).toHaveBeenNthCalledWith(1, 36, 100)
+    fireEvent.keyUp(key, { key: 'Enter' })
+    expect(noteOff).toHaveBeenNthCalledWith(1, 36)
+
+    fireEvent.keyDown(key, { key: ' ' })
+    expect(noteOn).toHaveBeenNthCalledWith(2, 36, 100)
+    fireEvent.keyUp(key, { key: ' ' })
+    expect(noteOff).toHaveBeenNthCalledWith(2, 36)
+  })
+
+  it('routes virtual keyboard press, release, and panic to the active Web Audio output', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(webAudioSynth, 'getSnapshot').mockReturnValue({ status: 'ready', error: null })
+    const noteOn = vi.spyOn(webAudioSynth, 'noteOn').mockReturnValue(true)
+    const noteOff = vi.spyOn(webAudioSynth, 'noteOff').mockReturnValue(true)
+    const allNotesOff = vi.spyOn(webAudioSynth, 'allNotesOff').mockReturnValue(0)
+    const midiNoteOn = vi.spyOn(midiEngine, 'sendNoteOn')
+    render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+
+    const key = screen.getByRole('button', { name: 'Play C 2' })
+    key.setPointerCapture = vi.fn()
+    fireEvent.pointerDown(key, { pointerId: 1 })
+    fireEvent.pointerUp(key, { pointerId: 1 })
+    fireEvent.pointerDown(key, { pointerId: 2 })
+    fireEvent.pointerCancel(key, { pointerId: 2 })
+    await user.click(screen.getByRole('button', { name: 'All notes off' }))
+
+    expect(noteOn).toHaveBeenCalledWith(36, 100)
+    expect(noteOn).toHaveBeenCalledTimes(2)
+    expect(noteOff).toHaveBeenCalledTimes(2)
+    expect(noteOff).toHaveBeenCalledWith(36)
+    expect(allNotesOff).toHaveBeenCalled()
+    expect(midiNoteOn).not.toHaveBeenCalled()
+  })
+
+  it('routes optional MIDI input notes to the active audio synth and releases them on input panic', async () => {
+    const user = userEvent.setup()
+    let onInputNote: ((event: MidiInputNoteEvent) => void) | undefined
+    vi.spyOn(midiEngine, 'subscribeToInputNotes').mockImplementation((listener) => {
+      onInputNote = listener
+      return () => true
+    })
+    vi.spyOn(webAudioSynth, 'getSnapshot').mockReturnValue({ status: 'ready', error: null })
+    const noteOn = vi.spyOn(webAudioSynth, 'noteOn').mockReturnValue(true)
+    const noteOff = vi.spyOn(webAudioSynth, 'noteOff').mockReturnValue(true)
+    render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+    if (!onInputNote) throw new Error('Active MIDI input did not subscribe for note events')
+
+    onInputNote({ type: 'noteOn', note: 67, velocity: 81 })
+    onInputNote({ type: 'noteOff', note: 67 })
+    onInputNote({ type: 'noteOn', note: 72, velocity: 100 })
+    onInputNote({ type: 'allNotesOff' })
+
+    expect(noteOn).toHaveBeenNthCalledWith(1, 67, 81)
+    expect(noteOn).toHaveBeenNthCalledWith(2, 72, 100)
+    expect(noteOff).toHaveBeenNthCalledWith(1, 67)
+    expect(noteOff).toHaveBeenNthCalledWith(2, 72)
+  })
+
+  it('releases active Web Audio keyboard notes when the keyboard resizes or collapses', async () => {
+    const user = userEvent.setup()
+    let resize: ResizeObserverCallback | undefined
+    class KeybedObserver {
+      constructor(callback: ResizeObserverCallback) { resize = callback }
+      observe = vi.fn()
+      unobserve = vi.fn()
+      disconnect = vi.fn()
+    }
+    vi.stubGlobal('ResizeObserver', KeybedObserver)
+    vi.spyOn(webAudioSynth, 'getSnapshot').mockReturnValue({ status: 'ready', error: null })
+    vi.spyOn(webAudioSynth, 'noteOn').mockReturnValue(true)
+    const allNotesOff = vi.spyOn(webAudioSynth, 'allNotesOff').mockReturnValue(0)
+    const { container } = render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+
+    const highKey = screen.getByRole('button', { name: 'Play C 7' })
+    highKey.setPointerCapture = vi.fn()
+    fireEvent.pointerDown(highKey, { pointerId: 1 })
+    const bed = container.querySelector('.piano-bed')
+    if (!bed || !resize) throw new Error('Keyboard resize observer was not initialized')
+    const callback = resize
+    act(() => callback([{
+      target: bed,
+      contentRect: new DOMRect(0, 0, 292, 98),
+      borderBoxSize: [],
+      contentBoxSize: [],
+      devicePixelContentBoxSize: [],
+    }], new KeybedObserver(callback)))
+    expect(allNotesOff).toHaveBeenCalled()
+    expect(screen.getAllByRole('button', { name: /^Play / })).toHaveLength(13)
+
+    const lowKey = screen.getByRole('button', { name: 'Play C 2' })
+    lowKey.setPointerCapture = vi.fn()
+    fireEvent.pointerDown(lowKey, { pointerId: 2 })
+    await user.click(screen.getByRole('button', { name: 'Virtual keyboard' }))
+    expect(allNotesOff).toHaveBeenCalledTimes(2)
+    expect(lowKey).not.toBeVisible()
   })
 
   it('marks unsupported PEAK sections without offering non-working controls', () => {
@@ -379,7 +550,7 @@ describe('Zinth', () => {
     expect(send).toHaveBeenNthCalledWith(3, 0, 'destination', 18)
     expect(send).toHaveBeenNthCalledWith(4, 0, 'depth', 80)
     expect(matrix.getByRole('slider', { name: 'Slot 1 depth' })).toHaveAttribute('aria-valuetext', '+16')
-    expect(usePatchStore.getState().modMatrix[0]).toEqual({ sourceA: 7, sourceB: 10, depth: 80, destination: 18 })
+    expect(usePatchStore.getState().summitState.modMatrix[0]).toEqual({ sourceA: 7, sourceB: 10, depth: 80, destination: 18 })
 
     fireEvent.click(matrix.getByRole('button', { name: 'Modulation slot 16' }))
     expect(matrix.getByRole('button', { name: 'Modulation slot 16' })).toHaveAttribute('aria-pressed', 'true')
