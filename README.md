@@ -45,6 +45,7 @@ Supported control changes are sent to the synth and reflected in the editor.
   decay 0-22 s, release 0-30 s, and sustain 0-100%. Values below one second
   display in milliseconds; longer values display in seconds. Click a value
   to enter an exact whole number in milliseconds (for example, 1500 for 1.5 s).
+  The numeric editor shows a visible milliseconds label while editing.
   Defaults, presets, and tutorial targets keep their existing timings.
 - Give each oscillator its own LP (low-pass), HP (high-pass), or BP (band-pass)
   filter with independent cutoff and resonance. The filter envelope is shared,

@@ -64,7 +64,7 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .tutorial-roadmap li[aria-current='step'] { border: 2px solid #f1c965; color: #f1c965; background: #393628; font-weight: 700; }
 .tutorial-roadmap .tutorial-step-done { border-color: #54d6ac; }
 .tutorial-step-state { font-size: 0.875rem; }
-.tutorial-lesson-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(240px, 1fr); gap: 8px 16px; align-items: start; }
+.tutorial-lesson-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(15rem, 1fr); gap: 8px 16px; align-items: start; }
 .tutorial-lesson-copy { display: grid; min-width: 0; gap: 10px; }
 .tutorial-learn p { max-width: none; }
 .synth-tutorial .tutorial-takeaway { font-weight: 700; color: #f1c965; }
@@ -76,8 +76,8 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .synth-tutorial .tutorial-play-hint { margin-bottom: 0; color: #b7c1c3; font-size: 0.875rem; }
 .tutorial-visual { grid-column: 2; grid-row: 1 / span 2; min-width: 0; margin: 0; padding: 10px; border: 1px solid #7d898c; border-radius: 6px; background: #202527; }
 .tutorial-visual svg { display: block; width: 100%; max-width: 200px; height: auto; margin: 6px auto; fill: none; }
-.harmonic-comparison { display: grid; gap: 12px; }
-.harmonic-spectrum-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.harmonic-comparison { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: 12px; }
+.harmonic-spectrum-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .harmonic-spectrum-heading strong { display: block; color: #f1c965; }
 .harmonic-spectrum-heading span { display: block; font-size: 0.875rem; }
 .harmonic-spectrum-heading svg { flex: 0 0 48px; width: 48px; margin: 0; }
@@ -89,10 +89,9 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .harmonic-tick { display: block; padding-top: 3px; color: #d5dbda; font-size: 0.75rem; }
 .synth-tutorial .harmonic-frequency-label { margin: -6px 0 0; text-align: right; color: #b7c1c3; font-size: 0.75rem; }
 .synth-tutorial .harmonic-key { margin: 0; font-size: 0.875rem; }
-@media (min-width: 801px) {
-  .harmonic-comparison { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .harmonic-spectrum-heading { flex-wrap: wrap; }
-  .harmonic-frequency-label, .harmonic-key { grid-column: 1 / -1; }
+.harmonic-frequency-label, .harmonic-key { grid-column: 1 / -1; }
+@media (forced-colors: active) {
+  .harmonic-bar { background: CanvasText; forced-color-adjust: none; }
 }
 .tutorial-visual-labels { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin-bottom: 8px; font-size: 0.875rem; font-weight: 600; }
 .tutorial-visual figcaption { max-width: 65ch; margin-top: 8px; }
@@ -151,6 +150,7 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .web-number-control input { width: 100%; min-width: 0; min-height: 28px; padding: 3px; border: 1px solid #7d898c; border-radius: 3px; background: #202527; color: #f1c965; font: 500 11px/1.4 var(--mono); }
 .web-number-control input:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 .web-number-control input[aria-invalid='true'] { border-color: #ef6c58; }
+.web-number-unit { display: block; margin-top: 2px; color: #d5dbda; font: 400 11px/1.4 system-ui, sans-serif; overflow-wrap: anywhere; }
 .web-number-error { display: block; margin-top: 4px; color: #ffd3ca; font: 400 11px/1.4 system-ui, sans-serif; overflow-wrap: anywhere; }
 .web-mixer-module { width: 112px; max-width: 100%; }
 .web-mixer-module .web-synth-control { display: flex; flex-direction: column; align-items: center; gap: 8px; }

@@ -80,6 +80,7 @@ describe('subtractive synthesis tutorial', () => {
         const input = screen.getByRole('spinbutton', { name: `${prefix} ${stage} value` })
         expect(input).toHaveValue(maximum)
         expect(input).toHaveAttribute('aria-description', expect.stringContaining('milliseconds'))
+        expect(screen.getByText('Milliseconds (ms)')).toBeVisible()
         await user.clear(input)
         await user.type(input, '1500{Enter}')
         expect(slider).toHaveValue('1500')

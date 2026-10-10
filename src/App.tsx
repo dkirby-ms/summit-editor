@@ -210,7 +210,7 @@ function WebSynthNumberInput({ parameter, value, valueText, onChange }: {
         className="web-editable-value"
         aria-label={`Edit ${parameter.label.toLowerCase()} value: ${valueText}`}
         onClick={() => setDraft(String(value))}
-      >{valueText}</button> : <input
+      >{valueText}</button> : <><input
         ref={editInput}
         type="number"
         min={parameter.min}
@@ -234,7 +234,7 @@ function WebSynthNumberInput({ parameter, value, valueText, onChange }: {
             requestAnimationFrame(() => valueButton.current?.focus())
           }
         }}
-      />}
+      />{inputUnit && <span className="web-number-unit">Milliseconds (ms)</span>}</>}
       {error && <span id={id} className="web-number-error" role="alert">{error}</span>}
     </div>
   )
