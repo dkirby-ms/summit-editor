@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { summitProfile, synthProfileById, synthProfileIds, synthProfiles, webSynthProfile } from './profiles'
+import { summitProfile, synthProfileById, synthProfileIds, synthProfiles, ultranovaProfile, webSynthProfile } from './profiles'
 import type { ParameterDefinition } from './parameters'
 import { webSynthParameters, webSynthPresets } from './webSynthProfile'
 
@@ -9,7 +9,7 @@ describe('synth profiles', () => {
     expect(synthProfileIds.webSynth).toBe('web-synth')
     expect(summitProfile.name).toBe('Novation Summit')
     expect(synthProfileById.get(synthProfileIds.summit)).toBe(summitProfile)
-    expect(synthProfiles).toEqual([webSynthProfile, summitProfile])
+    expect(synthProfiles).toEqual([webSynthProfile, summitProfile, ultranovaProfile])
   })
 
   it('allows profile parameter definitions without hardware addresses', () => {

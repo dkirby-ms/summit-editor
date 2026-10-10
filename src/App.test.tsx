@@ -8,6 +8,7 @@ import { usePatchStore } from './model/patchStore'
 import { midiEngine, type MidiInputNoteEvent } from './midi/midiEngine'
 import { webAudioSynth } from './audio/webAudioSynth'
 import { webSynthParameterHelp, webSynthParameters, webSynthPresets } from './model/webSynthProfile'
+import { ultranovaParameters } from './model/ultranovaProfile'
 
 describe('Zinth', () => {
   beforeEach(() => usePatchStore.setState({
@@ -57,6 +58,46 @@ describe('Zinth', () => {
     expect(screen.getByRole('region', { name: 'Oscillator 1' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Oscillator 1 manual shape')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Synth profile' })).toHaveDisplayValue('Built-in Web Synth')
+  })
+
+  it('renders the blue UltraNova panel and edits its independent hardware controls', async () => {
+    const user = userEvent.setup()
+    const send = vi.spyOn(midiEngine, 'sendParameter').mockReturnValue(true)
+    render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'ultranova')
+    expect(document.querySelector('.app-shell')).toHaveClass('ultranova-theme')
+    expect(screen.getByLabelText('UltraNova synth panel')).toHaveClass('peak-panel', 'ultranova-panel')
+    expect(screen.getByRole('combobox', { name: 'Synth profile' })).toHaveDisplayValue('Novation UltraNova')
+    expect(screen.getByRole('region', { name: 'Filters' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Fetch/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Import' })).not.toBeInTheDocument()
+    expect(screen.getByText(/UltraNova's 20-slot matrix/)).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Amplifier envelope attack' })).toHaveAttribute('aria-orientation', 'vertical')
+    const slot1 = screen.getByRole('combobox', { name: 'Slot 1 type' })
+    const slot2 = screen.getByRole('combobox', { name: 'Slot 2 type' })
+    await user.selectOptions(slot1, '2')
+    expect(within(slot2).getByRole('option', { name: 'Compressor 1' })).toBeDisabled()
+    expect(within(slot2).getByRole('option', { name: 'Bypass' })).toBeEnabled()
+    await user.selectOptions(slot1, '0')
+    expect(within(slot2).getByRole('option', { name: 'Compressor 1' })).toBeEnabled()
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Filter 1 cutoff' }), { key: 'ArrowDown' })
+    expect(usePatchStore.getState().values.filter1Cutoff).toBe(126)
+    expect(send).toHaveBeenLastCalledWith('filter1Cutoff', 126)
+    await user.selectOptions(within(screen.getByRole('region', { name: 'Oscillator 1' })).getByLabelText('Wave'), '13')
+    expect(usePatchStore.getState().values.osc1Wave).toBe(13)
+    for (const parameter of ultranovaParameters.filter((item) => !/^lfo[23]|^env[3456]/.test(item.id))) {
+      expect(document.querySelectorAll(`[id="${parameter.id}"]`)).toHaveLength(1)
+    }
+    await user.click(screen.getByRole('button', { name: 'LFO 3' }))
+    expect(screen.getByRole('slider', { name: 'LFO 3 rate' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Env 6' }))
+    fireEvent.change(screen.getByRole('slider', { name: 'Envelope 6 attack' }), { target: { value: '35' } })
+    expect(send).toHaveBeenLastCalledWith('env6Attack', 35)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'summit')
+    expect(document.querySelector('.app-shell')).not.toHaveClass('ultranova-theme')
+    expect(usePatchStore.getState().values.osc1Wave).toBe(2)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'ultranova')
+    expect(usePatchStore.getState().values).toMatchObject({ osc1Wave: 13, filter1Cutoff: 126, env6Attack: 35 })
   })
 
   it('renders web-synth controls and applies complete presets without Summit-only actions', async () => {

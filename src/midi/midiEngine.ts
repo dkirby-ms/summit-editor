@@ -1,7 +1,8 @@
 import { SummitMidiAdapter } from './summitMidiAdapter'
-import type { ParameterId } from '../model/parameters'
+import { UltraNovaMidiAdapter } from './ultranovaMidiAdapter'
 import type { ModMatrixField } from '../model/modMatrix'
 import { usePatchStore } from '../model/patchStore'
+import { synthProfileById } from '../model/profiles'
 
 export type MidiStatus =
   | 'unsupported'
@@ -83,6 +84,8 @@ export class SummitMidiEngine {
   private readonly inputNoteListeners = new Set<(event: MidiInputNoteEvent) => void>()
   private snapshot: MidiSnapshot
   private readonly adapter: SummitMidiAdapter
+  private readonly ultranovaAdapter: UltraNovaMidiAdapter
+  private readonly unsubscribeProfile: () => void
 
   constructor(
     requestAccess: RequestMidiAccess = browserRequestAccess,
@@ -98,6 +101,20 @@ export class SummitMidiEngine {
       (next) => this.update(next),
       () => this.snapshot.channel,
     )
+    this.ultranovaAdapter = new UltraNovaMidiAdapter(
+      this.sendMessage,
+      () => this.selectedOutput !== null,
+      (next) => this.update(next),
+      () => this.snapshot.channel,
+    )
+    this.unsubscribeProfile = usePatchStore.subscribe((state, previous) => {
+      if (state.activeProfileId !== previous.activeProfileId) this.resetInputState()
+    })
+  }
+
+  private resetInputState() {
+    this.adapter.resetInputState()
+    this.ultranovaAdapter.resetInputState()
   }
 
   subscribe = (listener: () => void) => {
@@ -122,7 +139,7 @@ export class SummitMidiEngine {
     this.update({ status: 'requesting', error: null, activity: 'Requesting MIDI and SysEx access...' })
 
     try {
-      this.access = await this.requestAccess({ sysex: usePatchStore.getState().activeProfileId === 'summit' })
+      this.access = await this.requestAccess({ sysex: synthProfileById.get(usePatchStore.getState().activeProfileId)?.capabilities.sysex ?? false })
       this.access.onstatechange = () => this.refreshPorts()
       this.refreshPorts()
       this.update({ status: 'ready', activity: 'MIDI access granted.' })
@@ -159,14 +176,16 @@ export class SummitMidiEngine {
   selectInput(id: string) {
     if (this.selectedInput && this.selectedInput.id !== id) this.notifyInputNotes({ type: 'allNotesOff' })
     if (this.selectedInput) this.selectedInput.onmidimessage = null
-    this.adapter.resetInputState()
+    this.resetInputState()
     this.selectedInput = this.access
       ? Array.from(this.access.inputs.values()).find((input) => input.id === id) ?? null
       : null
     if (this.selectedInput) {
       this.selectedInput.onmidimessage = (event) => {
         this.handleInputNote(event)
-        this.adapter.handleMessage(event, this.snapshot.channel)
+        const profileId = usePatchStore.getState().activeProfileId
+        if (profileId === 'summit') this.adapter.handleMessage(event, this.snapshot.channel)
+        if (profileId === 'ultranova') this.ultranovaAdapter.handleMessage(event, this.snapshot.channel)
       }
     }
     this.update({
@@ -194,15 +213,20 @@ export class SummitMidiEngine {
     const nextChannel = Math.min(16, Math.max(1, Math.round(channel)))
     if (nextChannel !== this.snapshot.channel) {
       this.notifyInputNotes({ type: 'allNotesOff' })
+      this.resetInputState()
     }
     this.update({ channel: nextChannel })
   }
 
-  sendParameter(id: ParameterId, value: number) {
-    return this.adapter.sendParameter(id, value)
+  sendParameter(id: string, value: number) {
+    const profileId = usePatchStore.getState().activeProfileId
+    if (profileId === 'ultranova') return this.ultranovaAdapter.sendParameter(id, value)
+    if (profileId === 'summit') return this.adapter.sendParameter(id, value)
+    return this.unsupportedOperation('Hardware parameter editing')
   }
 
   sendModMatrixValue(slotIndex: number, field: ModMatrixField, value: number) {
+    if (usePatchStore.getState().activeProfileId !== 'summit') return this.unsupportedOperation('Modulation matrix editing')
     return this.adapter.sendModMatrixValue(slotIndex, field, value)
   }
 
@@ -231,15 +255,27 @@ export class SummitMidiEngine {
   }
 
   resetHardwareToDefaults() {
-    return this.adapter.resetHardwareToDefaults()
+    const profileId = usePatchStore.getState().activeProfileId
+    if (profileId === 'ultranova') return this.ultranovaAdapter.resetHardwareToDefaults()
+    if (profileId === 'summit') return this.adapter.resetHardwareToDefaults()
+    return this.unsupportedOperation('Hardware reset')
   }
 
   sendSysex(data: Uint8Array) {
+    if (usePatchStore.getState().activeProfileId !== 'summit') return this.unsupportedOperation('SysEx transfer')
     return this.adapter.sendSysex(data)
   }
 
   requestEditBuffer() {
+    if (usePatchStore.getState().activeProfileId !== 'summit') return this.unsupportedOperation('Edit-buffer requests')
     return this.adapter.requestEditBuffer()
+  }
+
+  private unsupportedOperation(operation: string) {
+    const name = synthProfileById.get(usePatchStore.getState().activeProfileId)?.name
+    const message = `${operation} is not supported for ${name}.`
+    this.update({ status: 'error', error: message, activity: message })
+    return false
   }
 
   private sendMessage = (data: number[] | Uint8Array) => {
@@ -266,6 +302,7 @@ export class SummitMidiEngine {
   }
 
   destroy() {
+    this.unsubscribeProfile()
     this.notifyInputNotes({ type: 'allNotesOff' })
     if (this.selectedInput) this.selectedInput.onmidimessage = null
     if (this.access) this.access.onstatechange = null

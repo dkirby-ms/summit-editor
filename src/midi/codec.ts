@@ -1,4 +1,4 @@
-import type { SummitParameterDefinition } from '../model/parameters'
+import type { HardwareParameterDefinition } from '../model/parameters'
 
 const MIDI_CC = 0xb0
 
@@ -8,7 +8,7 @@ function assertDataByte(value: number, name: string) {
   }
 }
 
-export function clampParameterValue(parameter: SummitParameterDefinition, value: number) {
+export function clampParameterValue(parameter: HardwareParameterDefinition, value: number) {
   return Math.min(parameter.max, Math.max(parameter.min, Math.round(value)))
 }
 
@@ -36,7 +36,7 @@ export function encodeNrpn(channel: number, parameterMsb: number, parameterLsb: 
   ]
 }
 
-export function encodeParameter(channel: number, parameter: SummitParameterDefinition, value: number) {
+export function encodeParameter(channel: number, parameter: HardwareParameterDefinition, value: number) {
   const clampedValue = clampParameterValue(parameter, value)
   if (parameter.address.type === 'cc') {
     return [encodeCc(channel, parameter.address.controller, clampedValue)]

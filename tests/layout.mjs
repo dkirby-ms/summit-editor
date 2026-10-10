@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { chromium } from '@playwright/test'
 import { createServer } from 'vite'
+import AxeBuilder from '@axe-core/playwright'
 
 let server
 let browser
@@ -29,6 +30,172 @@ const viewports = [
   { width: 390, height: 844 },
   { width: 320, height: 640 },
 ]
+
+for (const { width, height } of viewports) {
+  test(`UltraNova blue panel reflows without clipping at ${width} x ${height}`, async () => {
+    const page = await browser.newPage({ viewport: { width, height } })
+    try {
+      await page.goto(baseUrl)
+      await page.getByRole('combobox', { name: 'Synth profile' }).selectOption('ultranova')
+      await page.evaluate(() => document.fonts.ready)
+      await page.getByRole('button', { name: 'LFO 3', exact: true }).click()
+      await page.getByRole('button', { name: 'Env 6', exact: true }).click()
+      const layout = await page.evaluate(() => ({
+        pageWidth: document.documentElement.scrollWidth,
+        clipped: [...document.querySelectorAll('.ultranova-panel .parameter-control, .ultranova-panel .peak-module-title, .ultranova-panel .lfo-selector button')]
+          .filter((element) => element.getClientRects().length > 0 && element.scrollWidth > element.clientWidth + 1)
+          .map((element) => element.id || element.textContent),
+        chassis: getComputedStyle(document.querySelector('.ultranova-panel')).borderLeftColor,
+        led: getComputedStyle(document.querySelector('.ultranova-panel .rotary-indicator')).backgroundColor,
+        envelopeDirection: getComputedStyle(document.querySelector('#env6Attack')).writingMode,
+      }))
+      assert.ok(layout.pageWidth <= width, 'UltraNova must not overflow horizontally')
+      assert.deepEqual(layout.clipped, [])
+      assert.equal(layout.chassis, 'rgb(35, 93, 164)')
+      assert.equal(layout.led, 'rgb(255, 82, 108)')
+      assert.equal(layout.envelopeDirection, 'vertical-lr')
+      assert.equal(await page.getByRole('button', { name: /^Fetch/ }).count(), 0)
+      await page.getByRole('combobox', { name: 'Synth profile' }).selectOption('summit')
+      assert.equal(await page.locator('.ultranova-theme').count(), 0)
+      assert.equal(await page.locator('.peak-panel').evaluate((panel) => getComputedStyle(panel).borderLeftColor), 'rgb(113, 88, 67)')
+    } finally {
+      await page.close()
+    }
+  })
+}
+
+for (const width of [1366, 390, 320]) {
+  test(`tutorial skip and exit persist across reloads at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 844 } })
+    try {
+      await page.goto(baseUrl)
+      await page.getByRole('button', { name: 'Skip tutorial', exact: true }).click()
+      assert.equal(await page.getByRole('heading', { name: 'Learn subtractive synthesis', exact: true }).count(), 0)
+      assert.equal(await page.getByRole('button', { name: 'Start tutorial', exact: true }).evaluate((button) => button === document.activeElement), true)
+      await page.reload()
+      assert.equal(await page.getByRole('button', { name: 'Skip tutorial', exact: true }).count(), 0)
+      await page.getByRole('button', { name: 'Start tutorial', exact: true }).click()
+      await page.getByRole('group', { name: 'Oscillator 1 waveform', exact: true }).getByRole('radio', { name: 'Square' }).check()
+      await page.getByRole('button', { name: 'Exit tutorial', exact: true }).click()
+      assert.equal(await page.getByRole('region', { name: 'Voice / unison', exact: true }).isVisible(), true)
+      assert.equal(await page.getByRole('group', { name: 'Oscillator 1 waveform', exact: true }).getByRole('radio', { name: 'Square' }).isChecked(), true)
+      assert.equal(await page.getByRole('button', { name: 'Start tutorial', exact: true }).evaluate((button) => button === document.activeElement), true)
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+      await page.reload()
+      assert.equal(await page.getByRole('heading', { name: 'Learn subtractive synthesis', exact: true }).count(), 0)
+      assert.equal(await page.getByRole('button', { name: 'Skip tutorial', exact: true }).count(), 0)
+      assert.equal(await page.getByRole('progressbar', { name: 'Tutorial progress', exact: true }).count(), 0)
+    } finally {
+      await page.close()
+    }
+  })
+
+  test(`subtractive tutorial unlocks, plays, and saves without overflow at ${width}px`, async () => {
+    const context = await browser.newContext({ viewport: { width, height: 844 } })
+    const page = await context.newPage()
+    try {
+      await page.goto(baseUrl)
+      await page.getByRole('button', { name: 'Start tutorial', exact: true }).click()
+      const assertLayout = async () => {
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Tutorial must not overflow horizontally')
+        assert.equal(await page.getByRole('heading', { name: /Challenge \d/ }).evaluate((heading) => heading === document.activeElement), true)
+        const tutorial = page.getByRole('region', { name: 'Subtractive synthesis tutorial', exact: true })
+        for (const name of ['Learn', 'See the idea', 'Try it', 'Listen for']) {
+          assert.equal(await tutorial.getByRole('heading', { name, exact: true }).isVisible(), true)
+        }
+        assert.equal(await tutorial.getByRole('img').count(), 1)
+        assert.equal(await tutorial.getByRole('list', { name: 'Tutorial steps', exact: true }).locator('[aria-current="step"]').count(), 1)
+        assert.equal(await tutorial.locator('.tutorial-learn p').first().evaluate((element) => parseFloat(getComputedStyle(element).fontSize)), 15)
+        if (width === 1366) {
+          const height = await tutorial.evaluate((element) => element.getBoundingClientRect().height)
+          assert.ok(height <= 600, `Desktop tutorial must leave room for controls; measured ${height}px`)
+        }
+        assert.ok(await tutorial.getByRole('button', { name: 'Exit tutorial', exact: true }).evaluate((button) => button.getBoundingClientRect().height) >= 44)
+        const scan = await new AxeBuilder({ page }).include('.synth-tutorial').analyze()
+        assert.deepEqual(scan.violations.map(({ id, nodes }) => ({ id, targets: nodes.map(({ target }) => target) })), [])
+        const resizedText = await page.addStyleTag({ content: `
+          html { font-size: 200% !important; }
+          .synth-tutorial * { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }
+          .synth-tutorial p { margin-bottom: 2em !important; }
+        ` })
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Enlarged and spaced tutorial text must reflow')
+        const clipped = await tutorial.locator('h3, h4, p, li, button, figcaption, .tutorial-visual-labels span').evaluateAll((elements) =>
+          elements.filter((element) => element.scrollWidth > element.clientWidth + 1).map((element) => element.textContent))
+        assert.deepEqual(clipped, [], 'Enlarged and spaced text must not be clipped')
+        await resizedText.evaluate((element) => element.remove())
+      }
+      await assertLayout()
+      assert.equal(await page.getByRole('region', { name: 'Filter', exact: true }).count(), 0)
+      await page.getByRole('button', { name: 'Start audio', exact: true }).click()
+      await page.getByRole('button', { name: 'Resume audio', exact: true }).waitFor()
+      const key = page.getByRole('button', { name: 'Play C 2', exact: true })
+      await key.focus()
+      await key.press('Space')
+      assert.equal(await key.isEnabled(), true)
+      await page.getByRole('group', { name: 'Oscillator 1 waveform', exact: true }).getByRole('radio', { name: 'Sawtooth' }).check()
+      const next = page.getByRole('button', { name: 'Claim badge and continue', exact: true })
+      await next.click()
+      await assertLayout()
+      const level = page.getByRole('slider', { name: 'Oscillator 2 level', exact: true })
+      await level.press('Home')
+      for (let i = 0; i < 30; i++) await level.press('ArrowUp')
+      await next.click()
+      await assertLayout()
+      const drag = async (control, offset) => {
+        await control.scrollIntoViewIfNeeded()
+        const bounds = await control.boundingBox()
+        assert.ok(bounds)
+        const x = bounds.x + bounds.width / 2
+        const y = bounds.y + bounds.height / 2
+        await page.mouse.move(x, y)
+        await page.mouse.down()
+        await page.mouse.move(x, y + offset)
+        await page.mouse.up()
+      }
+      for (const oscillator of [1, 2]) {
+        const cutoff = page.getByRole('slider', { name: `Oscillator ${oscillator} filter cutoff`, exact: true })
+        await cutoff.press('Home')
+        await drag(cutoff, -14)
+        await page.getByRole('button', { name: new RegExp(`^Edit oscillator ${oscillator} filter cutoff value:`) }).click()
+        const exactCutoff = page.getByRole('spinbutton', { name: `Oscillator ${oscillator} filter cutoff value`, exact: true })
+        await exactCutoff.fill('1500')
+        await exactCutoff.press('Enter')
+        assert.equal(await cutoff.getAttribute('aria-valuenow'), '1500')
+        await page.getByRole('slider', { name: `Oscillator ${oscillator} filter resonance`, exact: true }).press('PageUp')
+      }
+      await next.click()
+      await assertLayout()
+      const sustain = page.getByRole('slider', { name: 'Amplifier sustain', exact: true })
+      await sustain.press('Home')
+      for (let i = 0; i < 30; i++) await sustain.press('ArrowUp')
+      await next.click()
+      await assertLayout()
+      const amount = page.getByRole('slider', { name: 'Filter envelope amount', exact: true })
+      await amount.press('PageUp')
+      await amount.press('PageUp')
+      await amount.press('PageUp')
+      await next.click()
+      await assertLayout()
+      await page.getByRole('slider', { name: 'LFO pitch depth', exact: true }).press('PageUp')
+      await next.click()
+      await assertLayout()
+      await page.getByRole('textbox', { name: 'Preset name', exact: true }).fill('Browser quest')
+      await page.getByRole('button', { name: 'Save preset', exact: true }).click()
+      assert.equal(await page.getByText('Patch builder badge earned! 700 XP. All controls are unlocked.').isVisible(), true)
+      assert.equal(await page.getByRole('button', { name: 'Start tutorial', exact: true }).evaluate((button) => button === document.activeElement), true)
+      const preset = await page.getByRole('combobox', { name: 'Web synth preset', exact: true }).inputValue()
+      assert.match(preset, /^user-/)
+      await page.reload()
+      assert.equal(await page.getByRole('heading', { name: 'Learn subtractive synthesis', exact: true }).count(), 0)
+      assert.equal(await page.getByRole('button', { name: 'Skip tutorial', exact: true }).count(), 0)
+      await page.getByRole('combobox', { name: 'Web synth preset', exact: true }).selectOption(preset)
+      assert.equal(await page.getByRole('slider', { name: 'Amplifier sustain', exact: true }).inputValue(), '30')
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    } finally {
+      await context.close()
+    }
+  })
+}
 
 for (const { width, height, maxPageHeight } of viewports) {
   test(`compact panel reflows without clipping at ${width} x ${height}`, async () => {

@@ -4,9 +4,11 @@ import {
   type ParameterDefinition,
 } from './parameters'
 import { webSynthDefaultValues, webSynthParameters, webSynthPresets } from './webSynthProfile'
+import { ultranovaDefaultValues, ultranovaParameters } from './ultranovaProfile'
 
 export const synthProfileIds = {
   summit: 'summit',
+  ultranova: 'ultranova',
   webSynth: 'web-synth',
 } as const
 
@@ -64,7 +66,21 @@ export const webSynthProfile = {
   presets: webSynthPresets,
 } satisfies SynthProfile<typeof webSynthParameters>
 
-export const synthProfiles = [webSynthProfile, summitProfile] as const satisfies readonly SynthProfile[]
+export const ultranovaProfile = {
+  id: synthProfileIds.ultranova,
+  name: 'Novation UltraNova',
+  parameters: ultranovaParameters,
+  defaultValues: ultranovaDefaultValues,
+  capabilities: {
+    audioOutput: false,
+    midiInput: true,
+    midiOutput: true,
+    modulationMatrix: false,
+    sysex: false,
+  },
+} satisfies SynthProfile<typeof ultranovaParameters>
+
+export const synthProfiles = [webSynthProfile, summitProfile, ultranovaProfile] as const satisfies readonly SynthProfile[]
 
 export const synthProfileById = new Map<SynthProfileId, SynthProfile>(
   synthProfiles.map((profile): [SynthProfileId, SynthProfile] => [profile.id, profile]),

@@ -45,6 +45,60 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .audio-status-error { border-color: #ef6c58; color: #ffd3ca; }
 .audio-status strong { margin-right: 5px; text-transform: uppercase; }
 .web-synth-grid { display: grid; gap: 8px; }
+.web-synth-actions { flex-wrap: wrap; }
+.synth-tutorial { margin-bottom: 12px; padding: 8px 16px; border: 1px solid #899294; border-radius: 6px; background: #292f31; font: 400 0.9375rem/1.45 system-ui, sans-serif; overflow-wrap: anywhere; }
+.synth-tutorial h3 { margin: 6px 0; font: 700 clamp(1.125rem, 1.6vw, 1.375rem)/1.25 system-ui, sans-serif; }
+.synth-tutorial h4 { margin: 0 0 6px; font: 700 0.9375rem/1.4 system-ui, sans-serif; }
+.synth-tutorial p { max-width: 65ch; margin: 0 0 6px; }
+.web-preset-save p { font: 400 12px/1.6 var(--mono); overflow-wrap: anywhere; }
+.synth-tutorial progress { display: block; width: 100%; height: 8px; margin-top: 4px; accent-color: var(--signal); }
+.synth-tutorial button, .web-preset-save button { min-height: 36px; padding: 7px 12px; border: 1px solid #f1c965; border-radius: 3px; background: #393628; color: #f1c965; font: 500 12px/1.5 var(--mono); }
+.synth-tutorial button, .tutorial-preset-save button { min-height: 44px; font: 600 0.9375rem/1.4 system-ui, sans-serif; }
+.synth-tutorial button:disabled, .web-preset-save button:disabled { color: #b7c1c3; border-color: #7d898c; background: #202527; cursor: not-allowed; }
+.synth-tutorial button:focus-visible, .web-preset-save :focus-visible, .synth-tutorial h3:focus { outline: 2px solid var(--signal); outline-offset: 3px; }
+.tutorial-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tutorial-progress-heading { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: #d5dbda; font-size: 0.875rem; }
+.synth-tutorial .eyebrow { color: #b7c1c3; font-size: 0.875rem; letter-spacing: 0.06em; }
+.tutorial-roadmap { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; padding: 0; list-style: none; }
+.tutorial-roadmap li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 3px 8px; border: 1px solid #7d898c; border-radius: 4px; color: #d5dbda; font-size: 0.875rem; }
+.tutorial-roadmap li[aria-current='step'] { border: 2px solid #f1c965; color: #f1c965; background: #393628; font-weight: 700; }
+.tutorial-roadmap .tutorial-step-done { border-color: #54d6ac; }
+.tutorial-step-state { font-size: 0.875rem; }
+.tutorial-lesson-grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(240px, 1fr); gap: 8px 16px; align-items: start; }
+.tutorial-lesson-copy { display: grid; min-width: 0; gap: 10px; }
+.tutorial-learn p { max-width: none; }
+.synth-tutorial .tutorial-takeaway { font-weight: 700; color: #f1c965; }
+.tutorial-challenge { padding: 10px; border-left: 3px solid var(--signal); border-radius: 4px; background: #202527; }
+.tutorial-challenge ol { max-width: 65ch; margin: 0; padding-left: 1.5em; }
+.tutorial-challenge li + li { margin-top: 6px; }
+.tutorial-challenge li::marker { color: #f1c965; font-weight: 700; }
+.tutorial-listen { padding: 10px; border: 1px solid #7d898c; border-radius: 4px; }
+.synth-tutorial .tutorial-play-hint { margin-bottom: 0; color: #b7c1c3; font-size: 0.875rem; }
+.tutorial-visual { grid-column: 2; grid-row: 1 / span 2; min-width: 0; margin: 0; padding: 10px; border: 1px solid #7d898c; border-radius: 6px; background: #202527; }
+.tutorial-visual svg { display: block; width: 100%; max-width: 200px; height: auto; margin: 6px auto; fill: none; }
+.tutorial-visual-labels { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin-bottom: 8px; font-size: 0.875rem; font-weight: 600; }
+.tutorial-visual figcaption { max-width: 65ch; margin-top: 8px; }
+.synth-tutorial .tutorial-sketch-note { color: #b7c1c3; font-size: 0.875rem; }
+.sketch-axis { stroke: #7d898c; stroke-width: 1.5; }
+.sketch-signal { stroke: #f1c965; stroke-width: 3; }
+.sketch-secondary { stroke: #b7c1c3; stroke-width: 2; }
+.sketch-marker { stroke: #d5dbda; stroke-width: 1.5; stroke-dasharray: 5 5; }
+.sketch-box { stroke: #f1c965; stroke-width: 2; }
+.synth-tutorial .tutorial-feedback { margin-top: 6px; font-weight: 600; }
+.tutorial-preset-save, .tutorial-preset-save p { font: 400 0.9375rem/1.45 system-ui, sans-serif; }
+@media (min-width: 1100px) {
+  .tutorial-lesson-copy { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); align-items: start; }
+}
+@media (max-width: 800px) {
+  .tutorial-lesson-grid { grid-template-columns: minmax(0, 1fr); }
+  .tutorial-visual { grid-column: auto; grid-row: auto; }
+}
+.web-preset-save { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 14px 0; }
+.web-preset-save input { min-width: 0; max-width: 100%; min-height: 36px; border: 1px solid #7d898c; border-radius: 3px; padding: 6px 8px; background: #292f31; color: #f4f4ef; }
+.web-preset-save p { flex-basis: 100%; margin: 0; color: #b7c1c3; }
+.preset-error { padding: 10px; border-left: 3px solid #ef6c58; color: #ffd3ca; background: #292f31; overflow-wrap: anywhere; }
+.tutorial-controls .web-synth-signal-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.tutorial-controls .web-synth-envelope-grid:empty { display: none; }
 .web-synth-signal-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 112px minmax(0, 1.3fr) minmax(0, 1fr); gap: 8px; align-items: stretch; }
 .web-synth-envelope-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .web-synth-module { min-width: 0; }
@@ -72,6 +126,14 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .web-synth-control input[type='range'] { width: 100%; margin: 19px 0 7px; accent-color: var(--signal); }
 .web-synth-control .rotary-control { margin-top: 4px; }
 .web-synth-control .rotary-value { font-size: 10px; }
+.web-number-control { width: 100%; min-width: 0; margin-top: 4px; }
+.web-editable-value { display: block; width: 100%; min-height: 28px; padding: 3px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: #f1c965; font: 500 11px/1.4 var(--mono); }
+.web-editable-value:hover { border-color: #7d898c; background: #202527; }
+.web-editable-value:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.web-number-control input { width: 100%; min-width: 0; min-height: 28px; padding: 3px; border: 1px solid #7d898c; border-radius: 3px; background: #202527; color: #f1c965; font: 500 11px/1.4 var(--mono); }
+.web-number-control input:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.web-number-control input[aria-invalid='true'] { border-color: #ef6c58; }
+.web-number-error { display: block; margin-top: 4px; color: #ffd3ca; font: 400 11px/1.4 system-ui, sans-serif; overflow-wrap: anywhere; }
 .web-mixer-module { width: 112px; max-width: 100%; }
 .web-mixer-module .web-synth-control { display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .web-mixer-module .parameter-heading { flex-direction: column; align-items: center; gap: 4px; }
@@ -192,6 +254,25 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .midi-address { display: none; font: 400 8px/12px var(--mono); color: #b7c1c3; letter-spacing: 0.08em; }
 .debug-mode .midi-address { display: block; }
 .peak-panel :focus-visible { outline-color: var(--signal); }
+
+.ultranova-theme { --signal: #ff7e8c; --cyan: #235a9e; }
+.ultranova-theme .connection-strip { background: #122b50; }
+.ultranova-theme .status-ready { background: #ff526c; box-shadow: 0 0 10px #ff526c; }
+.ultranova-panel { border-color: #235da4; background: linear-gradient(135deg, #194575, #10284b); }
+.ultranova-panel .peak-module { border-color: #648cb8; background: #183a63; }
+.ultranova-panel .module-heading { border-color: #648cb8; }
+.ultranova-panel .parameter-control { border-color: #42648d; }
+.ultranova-panel .parameter-control select, .ultranova-panel .lfo-selector button, .ultranova-panel .control-tooltip { background: #10284b; border-color: #648cb8; }
+.ultranova-panel .parameter-heading output, .ultranova-panel .rotary-value { color: #ff9eaa; }
+.ultranova-panel .rotary-dial { border-color: #7e99b8; background: radial-gradient(circle at 35% 30%, #586e86, #26364b 43%, #111d2d 78%); }
+.ultranova-panel .rotary-indicator { background: #ff526c; box-shadow: 0 0 5px #ff526c; }
+.ultranova-panel .lfo-selector { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ultranova-panel .mod-envelopes-module .lfo-selector { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ultranova-panel .lfo-selector button[aria-pressed='true'] { color: #201c29; background: var(--signal); border-color: var(--signal); box-shadow: 0 0 5px #ff526c55; }
+.ultranova-panel .amp-module .parameter-grid, .ultranova-panel .mod-envelopes-module .parameter-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.ultranova-panel .amp-module input[type='range'], .ultranova-panel .mod-envelopes-module input[type='range'] { display: block; writing-mode: vertical-lr; direction: rtl; width: 28px; height: 60px; margin: 5px auto; }
+.ultranova-panel .filter-module .parameter-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.ultranova-panel .arp-module .parameter-grid { grid-template-columns: minmax(0, 1fr); }
 
 .patch-panel { padding: 8px; }
 .patch-panel .module-heading { margin-bottom: 6px; }
