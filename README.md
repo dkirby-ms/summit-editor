@@ -1,11 +1,11 @@
 ---
-title: Summit Patch Lab
-description: Browser-based editor for Novation Summit patches.
+title: Zinth
+description: Browser-based patch editor for Novation Summit, with more synths planned.
 ---
 
-# Summit Patch Lab
+# Zinth
 
-A browser-based editor for Novation Summit. Connect over Web MIDI to edit supported
+A browser-based patch editor, currently for Novation Summit. Connect over Web MIDI to edit supported
 controls, use the virtual keyboard, and transfer patch files.
 
 ## Start

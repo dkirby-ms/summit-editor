@@ -109,10 +109,10 @@ Phases 1 and 2 are the foundation. Phases 3 and 4 can proceed in parallel after 
 
 ## Decisions needed
 
-- **Name.** Candidates are open. It should not include a manufacturer or model name.
-- **Repo and URL.** Renaming the repo changes the Pages URL (currently
-  `/summit-editor/`) and the workflow base path derives from the repo name, so it follows
-  automatically. GitHub redirects the old repo URL but not the Pages URL.
+- **Name.** Decided: Zinth.
+- **Repo and URL.** Decided: the repo is renamed to `zinth`, so Pages now lives at
+  `/zinth/`. The workflow base path derives from the repo name. GitHub redirects the old
+  repo URL but not the old Pages URL.
 - **Summit layers.** Decided: A/B layer editing is deferred. Phase 1 stays behavior-neutral.
 - **Device order.** Proposed: Summit, then Ultranova, then MicroBrute.
 - **Trademark and attribution.** Use manufacturer names only descriptively ("works with ...").

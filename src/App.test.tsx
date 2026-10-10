@@ -7,7 +7,7 @@ import { defaultPatchValues, summitParameters } from './model/parameters'
 import { usePatchStore } from './model/patchStore'
 import { midiEngine } from './midi/midiEngine'
 
-describe('Summit Patch Lab', () => {
+describe('Zinth', () => {
   beforeEach(() => usePatchStore.setState({
     values: { ...defaultPatchValues },
     modMatrix: defaultModMatrix.map((slot) => ({ ...slot })),
