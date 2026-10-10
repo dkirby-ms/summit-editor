@@ -234,30 +234,32 @@ Dependencies:
 ```mermaid
 %%{init: {"themeVariables": {"fontFamily": "Arial, Helvetica, sans-serif", "fontSize": "16px"}}}%%
 flowchart LR
-    ui["src/App.tsx: active-profile UI"]
-    registry["Added: stable synth profile registry"]
+    app["src/App.tsx: active-profile UI"]
+    profile["Added: stable synth profile registry"]
     store["src/model/patchStore.ts: profile-keyed serializable state"]
     summit["Added: Summit profile and MIDI adapter"]
     midi["src/midi/midiEngine.ts: Web MIDI and Summit transport"]
     audio["Added: built-in Web Audio synth"]
     keyboard["Virtual keyboard and optional MIDI input"]
-    tests["Added: profile, audio-logic, and integration tests"]
-    ui -->|selects and renders| registry
-    ui -->|reads and updates| store
-    registry -->|describes| summit
-    registry -->|describes| audio
+    profileTests["Added: profile and Summit regression tests"]
+    audioTests["Added: audio and integration tests"]
+    app -->|selects and renders| profile
+    app -->|reads and updates| store
+    profile -->|describes| summit
+    profile -->|describes| audio
     summit -->|owns| midi
-    store -->|isolates values by profile ID| registry
+    store -->|isolates values by profile ID| profile
     keyboard -->|plays through active output| midi
     keyboard -->|plays through active output| audio
-    tests -->|protect| ui
-    tests -->|protect| store
-    tests -->|protect| midi
-    tests -->|protect| audio
+    profileTests -->|protect| app
+    profileTests -->|protect| store
+    profileTests -->|protect| midi
+    audioTests -->|protect| audio
+    audioTests -->|protect| app
     classDef new stroke-dasharray: 5 5
-    class registry,summit,audio,tests new
+    class profile,summit,audio,profileTests,audioTests new
     classDef phase fill:#fff3bf,color:#1f2328,stroke:#9a6700,stroke-width:2px
-    class audio,keyboard,tests phase
+    class app,profile,store,audio,keyboard,audioTests phase
 ```
 
 Highlighted work: add the built-in audio engine and route active-profile keyboard performance to it. Summit MIDI remains a separate output.
