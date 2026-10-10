@@ -66,6 +66,36 @@ The editor currently provides one set of patch controls; independent Summit A/B
 layer editing is not supported. Verify MIDI behavior with your hardware before
 relying on changes.
 
+## Learn subtractive synthesis
+
+Select Built-in Web Synth and choose **Start tutorial** for an optional,
+untimed patch-building quest. It starts from a simple sine patch and reveals
+controls as you earn six badges and 100 XP per challenge:
+
+1. Choose a waveform with harmonics.
+2. Blend and detune a second oscillator.
+3. Subtract harmonics with the two low-pass filters.
+4. Shape loudness with the amplifier envelope.
+5. Move brightness with the filter envelope.
+6. Add vibrato with the LFO.
+
+Use **Start audio** and the virtual keyboard to hear each change. The displayed
+targets enable **Claim badge and continue**; earlier controls remain available.
+The seventh challenge names and saves your sound, earning the Patch builder
+badge and bringing your total to 700 XP. Saving unlocks the full editor.
+This teaches subtractive synthesis, not FM or ring modulation.
+
+You can leave at any time, keeping your learning patch or restoring the patch
+you had before starting. Switching synth profiles leaves your learning patch
+in Web Synth and exits the tutorial. Progress is not retained after leaving
+or reloading.
+
+You can also name and **Save preset** outside the tutorial. Saved patches appear
+under **Your browser presets** in the preset selector and survive page reloads.
+They store all Web Synth parameters, remain separate from Summit SysEx files,
+and are local to this browser and site. Clearing site data removes them.
+Storage failures are displayed without reporting a successful save.
+
 ## Checks
 
 ```sh

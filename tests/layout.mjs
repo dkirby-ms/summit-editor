@@ -30,6 +30,82 @@ const viewports = [
   { width: 320, height: 640 },
 ]
 
+for (const width of [1366, 390, 320]) {
+  test(`subtractive tutorial unlocks, plays, and saves without overflow at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 844 } })
+    try {
+      await page.goto(baseUrl)
+      await page.getByRole('button', { name: 'Start tutorial', exact: true }).click()
+      const assertLayout = async () => {
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Tutorial must not overflow horizontally')
+        assert.equal(await page.getByRole('heading', { name: /Challenge \d/ }).evaluate((heading) => heading === document.activeElement), true)
+      }
+      await assertLayout()
+      assert.equal(await page.getByRole('region', { name: 'Filter', exact: true }).count(), 0)
+      await page.getByRole('button', { name: 'Start audio', exact: true }).click()
+      await page.getByRole('button', { name: 'Resume audio', exact: true }).waitFor()
+      const key = page.getByRole('button', { name: 'Play C 2', exact: true })
+      await key.focus()
+      await key.press('Space')
+      assert.equal(await key.isEnabled(), true)
+      await page.getByRole('group', { name: 'Oscillator 1 waveform', exact: true }).getByRole('radio', { name: 'Sawtooth' }).check()
+      const next = page.getByRole('button', { name: 'Claim badge and continue', exact: true })
+      await next.click()
+      await assertLayout()
+      const level = page.getByRole('slider', { name: 'Oscillator 2 level', exact: true })
+      await level.press('Home')
+      for (let i = 0; i < 30; i++) await level.press('ArrowUp')
+      await next.click()
+      await assertLayout()
+      const drag = async (control, offset) => {
+        await control.scrollIntoViewIfNeeded()
+        const bounds = await control.boundingBox()
+        assert.ok(bounds)
+        const x = bounds.x + bounds.width / 2
+        const y = bounds.y + bounds.height / 2
+        await page.mouse.move(x, y)
+        await page.mouse.down()
+        await page.mouse.move(x, y + offset)
+        await page.mouse.up()
+      }
+      for (const oscillator of [1, 2]) {
+        const cutoff = page.getByRole('slider', { name: `Oscillator ${oscillator} filter cutoff`, exact: true })
+        await cutoff.press('Home')
+        await drag(cutoff, -14)
+        await page.getByRole('slider', { name: `Oscillator ${oscillator} filter resonance`, exact: true }).press('PageUp')
+      }
+      await next.click()
+      await assertLayout()
+      const sustain = page.getByRole('slider', { name: 'Amplifier sustain', exact: true })
+      await sustain.press('Home')
+      for (let i = 0; i < 30; i++) await sustain.press('ArrowUp')
+      await next.click()
+      await assertLayout()
+      const amount = page.getByRole('slider', { name: 'Filter envelope amount', exact: true })
+      await amount.press('PageUp')
+      await amount.press('PageUp')
+      await amount.press('PageUp')
+      await next.click()
+      await assertLayout()
+      await page.getByRole('slider', { name: 'LFO pitch depth', exact: true }).press('PageUp')
+      await next.click()
+      await assertLayout()
+      await page.getByRole('textbox', { name: 'Preset name', exact: true }).fill('Browser quest')
+      await page.getByRole('button', { name: 'Save preset', exact: true }).click()
+      assert.equal(await page.getByText('Patch builder badge earned! 700 XP. All controls are unlocked.').isVisible(), true)
+      assert.equal(await page.getByRole('button', { name: 'Start tutorial', exact: true }).evaluate((button) => button === document.activeElement), true)
+      const preset = await page.getByRole('combobox', { name: 'Web synth preset', exact: true }).inputValue()
+      assert.match(preset, /^user-/)
+      await page.reload()
+      await page.getByRole('combobox', { name: 'Web synth preset', exact: true }).selectOption(preset)
+      assert.equal(await page.getByRole('slider', { name: 'Amplifier sustain', exact: true }).inputValue(), '30')
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+    } finally {
+      await page.close()
+    }
+  })
+}
+
 for (const { width, height, maxPageHeight } of viewports) {
   test(`compact panel reflows without clipping at ${width} x ${height}`, async () => {
     const page = await browser.newPage({ viewport: { width, height } })

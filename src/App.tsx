@@ -37,6 +37,8 @@ import {
 } from './model/modMatrix'
 import { usePatchStore } from './model/patchStore'
 import { synthProfileById, synthProfiles } from './model/profiles'
+import { subtractiveLessons, tutorialInitialValues, tutorialParameters } from './model/subtractiveTutorial'
+import { readWebSynthPresets, saveWebSynthPreset } from './model/webSynthPresetStorage'
 
 function ControlHelp({ label, text }: { label: string; text: string }) {
   const id = useId()
@@ -255,15 +257,74 @@ function WebSynthEnvelope({ section, values }: { section: 'Amp envelope' | 'Filt
 function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
   const values = usePatchStore((state) => state.values)
   const applyProfileValues = usePatchStore((state) => state.applyProfileValues)
-  const selectedPreset = webSynthPresets.find((preset) => webSynthParameters.every((parameter) => values[parameter.id] === preset.values[parameter.id]))?.id ?? ''
+  const [presetState, setPresetState] = useState(() => {
+    try {
+      return { presets: readWebSynthPresets(), error: '' }
+    } catch (error) {
+      return { presets: [], error: `Could not load presets: ${error instanceof Error || error instanceof DOMException ? error.message : 'Browser storage is unavailable.'}` }
+    }
+  })
+  const [presetName, setPresetName] = useState('')
+  const [savedMessage, setSavedMessage] = useState('')
+  const [tutorial, setTutorial] = useState<{ step: number; previousValues: Record<string, number> } | null>(null)
+  const [graduated, setGraduated] = useState(false)
+  const tutorialHeading = useRef<HTMLHeadingElement>(null)
+  const startTutorialButton = useRef<HTMLButtonElement>(null)
+  const wasInTutorial = useRef(false)
+  const presets = [...webSynthPresets, ...presetState.presets]
+  const selectedPreset = presets.find((preset) => webSynthParameters.every((parameter) => values[parameter.id] === preset.values[parameter.id]))?.id ?? ''
+  const lesson = tutorial ? subtractiveLessons[tutorial.step] : undefined
+  const unlocked = tutorial ? tutorialParameters(tutorial.step) : null
+  const available = (parameter: WebSynthParameter) => !unlocked || unlocked.has(parameter.id)
+  const sectionAvailable = (section: string) => webSynthParameters.some((parameter) =>
+    (parameter.section === section || (section === 'Filter' && (parameter.section === 'Filter 1' || parameter.section === 'Filter 2')))
+    && available(parameter))
+
+  useEffect(() => {
+    if (tutorial) tutorialHeading.current?.focus()
+    else if (wasInTutorial.current) startTutorialButton.current?.focus()
+    wasInTutorial.current = Boolean(tutorial)
+  }, [tutorial])
 
   useEffect(() => {
     webAudioSynth.setParameters(values)
   }, [values])
 
   function selectPreset(id: string) {
-    const preset = webSynthPresets.find((item) => item.id === id)
+    const preset = presets.find((item) => item.id === id)
     if (preset) applyProfileValues('web-synth', preset.values)
+  }
+
+  function startTutorial() {
+    webAudioSynth.allNotesOff()
+    setTutorial({ step: 0, previousValues: { ...values } })
+    applyProfileValues('web-synth', tutorialInitialValues)
+    setGraduated(false)
+    setSavedMessage('')
+  }
+
+  function leaveTutorial(restore: boolean) {
+    if (restore && tutorial) {
+      webAudioSynth.allNotesOff()
+      applyProfileValues('web-synth', tutorial.previousValues)
+    }
+    setTutorial(null)
+  }
+
+  function savePreset() {
+    try {
+      const next = saveWebSynthPreset(presetName, values)
+      setPresetState({ presets: next, error: '' })
+      setSavedMessage(`Saved "${presetName.trim()}" in this browser.`)
+      setPresetName('')
+      if (tutorial && !lesson) {
+        setGraduated(true)
+        leaveTutorial(false)
+      }
+    } catch (error) {
+      setPresetState((current) => ({ ...current, error: `Could not save preset: ${error instanceof Error || error instanceof DOMException ? error.message : 'Browser storage is unavailable.'}` }))
+      setSavedMessage('')
+    }
   }
 
   return (
@@ -277,9 +338,12 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
         <div className="web-synth-actions">
           <div className="web-preset-control">
           <div className="web-action-heading"><span>Preset</span><ClickControlHelp label="Web synth preset" text="Load a complete set of oscillator, filter, envelope, and LFO settings as a starting point. A synth patch is a recipe for a sound. Editing any setting turns the selected preset into a custom patch." /></div>
-          <select aria-label="Web synth preset" value={selectedPreset} onChange={(event) => selectPreset(event.target.value)}>
+          <select aria-label="Web synth preset" value={selectedPreset} disabled={Boolean(tutorial)} onChange={(event) => selectPreset(event.target.value)}>
             <option value="">Custom</option>
             {webSynthPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+            {presetState.presets.length > 0 && <optgroup label="Your browser presets">
+              {presetState.presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+            </optgroup>}
           </select></div>
           <div className="web-action-with-help">
           <button type="button" className="primary-action" onClick={() => { void webAudioSynth.start() }} disabled={audio.status === 'starting'}>
@@ -292,30 +356,61 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
       <p className={`audio-status audio-status-${audio.status}`} role="status" aria-live="polite">
         <strong>Audio {audio.status}.</strong>{audio.error ? ` ${audio.error}` : audio.status === 'ready' ? ' Audio output is independent of MIDI.' : ' Start audio to enable the virtual keyboard.'}
       </p>
-      <div className="web-synth-grid">
+      <section className="synth-tutorial" aria-label="Subtractive synthesis tutorial">
+        {!tutorial ? <>
+          <h3>Learn subtractive synthesis</h3>
+          <p>Six hands-on challenges, one patch of your own. Unlock controls from oscillator to modulation, earn badges, and save your sound. No timer or score penalty.</p>
+          <p>Starting uses a learning patch and keeps your current patch available to restore until you leave the tutorial.</p>
+          <button ref={startTutorialButton} type="button" onClick={startTutorial}>Start tutorial</button>
+          {graduated && <p role="status">Patch builder badge earned! 700 XP. All controls are unlocked.</p>}
+        </> : <>
+          <span className="eyebrow">Patch builder quest / {tutorial.step * 100} XP</span>
+          <progress aria-label="Tutorial progress" value={tutorial.step} max={subtractiveLessons.length + 1} />
+          <h3 ref={tutorialHeading} tabIndex={-1}>{lesson ? `Challenge ${tutorial.step + 1} of 7: ${lesson.title}` : 'Challenge 7 of 7: Save your sound'}</h3>
+          <p>{lesson?.concept ?? 'A preset stores the whole recipe: waveforms, tuning, levels, filters, envelopes, and modulation. Give your patch a name below and save it to earn your Patch builder badge.'}</p>
+          {lesson && <p className="tutorial-challenge">{lesson.challenge}</p>}
+          <p className="tutorial-signal-chain">Oscillators &gt; individual filters &gt; mix &gt; amplifier &gt; speakers. Envelopes and LFO add movement.</p>
+          <p role="status">{lesson ? lesson.complete(values) ? `Target reached! Claim ${lesson.reward} and 100 XP.` : 'Explore the unlocked controls to reach the target.' : 'Name and save your preset below to finish.'}</p>
+          {tutorial.step > 0 && <p>Badges: {subtractiveLessons.slice(0, tutorial.step).map((item) => item.reward).join(' / ')}</p>}
+          <div className="tutorial-actions">
+            {lesson && <button type="button" disabled={!lesson.complete(values)} onClick={() => setTutorial({ ...tutorial, step: tutorial.step + 1 })}>Claim badge and continue</button>}
+            <button type="button" onClick={() => leaveTutorial(false)}>Leave and keep patch</button>
+            <button type="button" onClick={() => leaveTutorial(true)}>Leave and restore previous patch</button>
+          </div>
+        </>}
+      </section>
+      {(!tutorial || !lesson) && <form className="web-preset-save" onSubmit={(event) => { event.preventDefault(); savePreset() }}>
+        <label htmlFor="web-preset-name">Preset name</label>
+        <input id="web-preset-name" value={presetName} maxLength={64} required onChange={(event) => setPresetName(event.target.value)} placeholder="My first patch" />
+        <button type="submit" disabled={!presetName.trim()}>Save preset</button>
+        <p>Saved only in this browser. Clearing site data removes your presets.</p>
+      </form>}
+      {presetState.error && <p className="preset-error" role="alert">{presetState.error}</p>}
+      {savedMessage && <p role="status">{savedMessage}</p>}
+      <div className={`web-synth-grid${tutorial ? ' tutorial-controls' : ''}`}>
         {([
           ['Oscillator 1', 'Oscillator 2', 'Mixer', 'Filter', 'LFO'],
           ['Amp envelope', 'Filter envelope'],
         ] as const).map((sections, row) => (
           <div key={row} className={row === 0 ? 'web-synth-signal-grid' : 'web-synth-envelope-grid'}>
-            {sections.map((section) => (
+            {sections.filter(sectionAvailable).map((section) => (
               <PanelModule key={section} id={`web-${section.toLowerCase().replaceAll(' ', '-')}`} title={section} className={`web-synth-module web-${section.toLowerCase().replaceAll(' ', '-')}-module`}>
                 {section === 'Filter' ? <>
                   <div className="web-filter-bank">
-                    {(['Filter 1', 'Filter 2'] as const).map((filterSection, index) => (
+                    {(['Filter 1', 'Filter 2'] as const).filter(sectionAvailable).map((filterSection, index) => (
                       <fieldset className="web-filter-group" key={filterSection}>
                         <legend>Oscillator {index + 1}</legend>
                         <div className="web-synth-controls">
-                          {webSynthParameters.filter((parameter) => parameter.section === filterSection).map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
+                          {webSynthParameters.filter((parameter) => parameter.section === filterSection && available(parameter)).map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
                         </div>
                       </fieldset>
                     ))}
                   </div>
-                  {webSynthParameters.filter((parameter) => parameter.section === 'Filter').map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
+                  {webSynthParameters.filter((parameter) => parameter.section === 'Filter' && available(parameter)).map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
                 </> : section === 'Amp envelope' || section === 'Filter envelope'
                   ? <WebSynthEnvelope section={section} values={values} />
                   : <div className="web-synth-controls">
-                    {webSynthParameters.filter((parameter) => parameter.section === section).map((parameter) => (
+                    {webSynthParameters.filter((parameter) => parameter.section === section && available(parameter)).map((parameter) => (
                       <WebSynthParameterControl key={parameter.id} parameter={parameter} vertical={section === 'Mixer'} />
                     ))}
                   </div>}
@@ -323,12 +418,12 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
             ))}
           </div>
         ))}
-        <PanelModule id="web-voice-unison" title="Voice / unison" className="web-synth-module web-voice-module">
+        {!tutorial && <PanelModule id="web-voice-unison" title="Voice / unison" className="web-synth-module web-voice-module">
           <div className="web-synth-controls">
             {webSynthParameters.filter((parameter) => parameter.section === 'Voice / unison').map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
           </div>
           <p className="web-voice-note">Changing polyphony or unison voices releases sounding notes.</p>
-        </PanelModule>
+        </PanelModule>}
       </div>
     </section>
   )

@@ -1,0 +1,43 @@
+import type { SynthPreset } from './profiles'
+import { webSynthParameters } from './webSynthProfile'
+
+export const webSynthPresetStorageKey = 'zinth.web-synth-presets.v1'
+
+function validValues(values: unknown): values is Record<string, number> {
+  if (!values || typeof values !== 'object') return false
+  return Object.keys(values).length === webSynthParameters.length && webSynthParameters.every((parameter) => {
+    const value: unknown = Reflect.get(values, parameter.id)
+    return typeof value === 'number' && Number.isFinite(value) && value >= parameter.min && value <= parameter.max
+      && (!('valueLabels' in parameter) || Number.isInteger(value))
+  })
+}
+
+function validPreset(preset: unknown): preset is SynthPreset {
+  if (!preset || typeof preset !== 'object') return false
+  const id: unknown = Reflect.get(preset, 'id')
+  const name: unknown = Reflect.get(preset, 'name')
+  return typeof id === 'string' && id.startsWith('user-') && id.length > 5
+    && typeof name === 'string' && name.trim().length > 0 && name.length <= 64
+    && validValues(Reflect.get(preset, 'values'))
+}
+
+export function readWebSynthPresets(): SynthPreset[] {
+  const raw = localStorage.getItem(webSynthPresetStorageKey)
+  if (raw === null) return []
+  const parsed: unknown = JSON.parse(raw)
+  if (!Array.isArray(parsed) || !parsed.every(validPreset) || new Set(parsed.map((preset) => preset.id)).size !== parsed.length) {
+    throw new Error('Saved Web Synth presets are invalid. Existing browser data has not been changed.')
+  }
+  return parsed
+}
+
+export function saveWebSynthPreset(name: string, values: Readonly<Record<string, number>>): SynthPreset[] {
+  const trimmed = name.trim()
+  if (!trimmed || trimmed.length > 64) throw new Error('Use a preset name between 1 and 64 characters.')
+  if (!validValues(values)) throw new Error('Cannot save an invalid Web Synth patch.')
+  const presets = readWebSynthPresets()
+  const preset: SynthPreset = { id: `user-${crypto.randomUUID()}`, name: trimmed, values: { ...values } }
+  const next = [...presets, preset]
+  localStorage.setItem(webSynthPresetStorageKey, JSON.stringify(next))
+  return next
+}
