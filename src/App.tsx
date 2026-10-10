@@ -1254,7 +1254,7 @@ function App() {
           <label><span>Synth profile</span><select aria-label="Synth profile" value={activeProfileId} onChange={(event) => setActiveProfile(event.target.value as typeof activeProfileId)}>
             {synthProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
           </select></label>
-          <strong>PEAK-STYLE / SINGLE PART</strong>
+          <strong>WEB SYNTH TOOLS</strong>
         </div>
       </header>
 
