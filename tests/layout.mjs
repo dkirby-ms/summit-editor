@@ -125,6 +125,26 @@ for (const width of [1366, 390, 320]) {
         await resizedText.evaluate((element) => element.remove())
       }
       await assertLayout()
+      const spectrumLayout = await page.locator('.harmonic-spectrum').evaluateAll((spectra) => spectra.map((spectrum) => {
+        const plot = spectrum.querySelector('.harmonic-plot')
+        const bars = [...spectrum.querySelectorAll('.harmonic-bar')].map((bar) => bar.getBoundingClientRect().height)
+        return {
+          width: spectrum.getBoundingClientRect().width,
+          plotWidth: plot.getBoundingClientRect().width,
+          bars,
+          clipped: [...spectrum.querySelectorAll('span, strong')].filter((element) => element.scrollWidth > element.clientWidth + 1).map((element) => element.textContent),
+        }
+      }))
+      assert.equal(spectrumLayout.length, 2)
+      for (const spectrum of spectrumLayout) {
+        assert.ok(Math.abs(spectrum.width - spectrum.plotWidth) <= 1, 'Spectrum must fill its chart')
+        assert.deepEqual(spectrum.clipped, [])
+      }
+      assert.ok(spectrumLayout[0].bars[0] >= 60)
+      assert.deepEqual(spectrumLayout[0].bars.slice(1), Array(7).fill(0))
+      for (const [index, height] of spectrumLayout[1].bars.entries()) {
+        assert.ok(Math.abs(height - spectrumLayout[1].bars[0] / (index + 1)) < 1, 'Sawtooth harmonic heights must decrease as 1/n')
+      }
       assert.equal(await page.getByRole('region', { name: 'Filter', exact: true }).count(), 0)
       await page.getByRole('button', { name: 'Start audio', exact: true }).click()
       await page.getByRole('button', { name: 'Resume audio', exact: true }).waitFor()

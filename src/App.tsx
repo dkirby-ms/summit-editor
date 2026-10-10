@@ -180,6 +180,7 @@ function WebSynthNumberInput({ parameter, value, valueText, onChange }: {
   const valueButton = useRef<HTMLButtonElement>(null)
   const editInput = useRef<HTMLInputElement>(null)
   const editing = draft !== null
+  const inputUnit = parameter.id.endsWith('Attack') || parameter.id.endsWith('Decay') || parameter.id.endsWith('Release') ? ' milliseconds' : ''
 
   useEffect(() => {
     if (editing) {
@@ -192,7 +193,7 @@ function WebSynthNumberInput({ parameter, value, valueText, onChange }: {
     if (draft === null) return
     const next = input.valueAsNumber
     if (!draft.trim() || !Number.isInteger(next) || next < parameter.min || next > parameter.max) {
-      setError(`Enter a whole number from ${parameter.min} to ${parameter.max}.`)
+      setError(`Enter a whole number from ${parameter.min} to ${parameter.max}${inputUnit}.`)
       return
     }
     onChange(next)
@@ -217,7 +218,7 @@ function WebSynthNumberInput({ parameter, value, valueText, onChange }: {
         step={1}
         value={draft ?? value}
         aria-label={`${parameter.label} value`}
-        aria-description={`Current setting: ${valueText}. Enter a whole number from ${parameter.min} to ${parameter.max}. Press Enter to apply or Escape to cancel.`}
+        aria-description={`Current setting: ${valueText}. Enter a whole number from ${parameter.min} to ${parameter.max}${inputUnit}. Press Enter to apply or Escape to cancel.`}
         aria-invalid={Boolean(error)}
         aria-describedby={error ? id : undefined}
         onChange={(event) => { setDraft(event.target.value); setError('') }}
@@ -279,7 +280,7 @@ function WebSynthParameterControl({ parameter, vertical = false }: { parameter: 
           ))}
         </fieldset>
       ) : vertical ? (
-        <input id={`web-${parameter.id}`} type="range" min={parameter.min} max={parameter.max} value={value} aria-label={parameter.label} aria-orientation="vertical" aria-description="Use arrow keys to adjust. Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))} />
+        <input id={`web-${parameter.id}`} type="range" min={parameter.min} max={parameter.max} value={value} aria-label={parameter.label} aria-valuetext={valueText} aria-orientation="vertical" aria-description="Use arrow keys to adjust. Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))} />
       ) : (
         <RotaryControl
           id={`web-${parameter.id}`}
@@ -303,7 +304,7 @@ function getWebSynthValueText(parameter: WebSynthParameter, value: number) {
   if (parameter.id === 'osc1Detune' || parameter.id === 'osc2Detune' || parameter.id === 'lfoPitchDepth' || parameter.id === 'unisonDetune') return `${value} cents`
   if (parameter.id === 'lfoRate') return `${value} Hz`
   if (parameter.id.endsWith('Sustain') || parameter.id.endsWith('Level') || parameter.id.endsWith('Resonance') || parameter.id === 'filterEnvelopeAmount' || parameter.id === 'lfoFilterDepth' || parameter.id === 'lfoResonanceDepth') return `${value}%`
-  if (parameter.id.endsWith('Attack') || parameter.id.endsWith('Decay') || parameter.id.endsWith('Release')) return `${value} ms`
+  if (parameter.id.endsWith('Attack') || parameter.id.endsWith('Decay') || parameter.id.endsWith('Release')) return value >= 1000 ? `${Number((value / 1000).toFixed(3))} s` : `${value} ms`
   return String(value)
 }
 

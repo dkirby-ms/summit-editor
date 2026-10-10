@@ -76,6 +76,24 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .synth-tutorial .tutorial-play-hint { margin-bottom: 0; color: #b7c1c3; font-size: 0.875rem; }
 .tutorial-visual { grid-column: 2; grid-row: 1 / span 2; min-width: 0; margin: 0; padding: 10px; border: 1px solid #7d898c; border-radius: 6px; background: #202527; }
 .tutorial-visual svg { display: block; width: 100%; max-width: 200px; height: auto; margin: 6px auto; fill: none; }
+.harmonic-comparison { display: grid; gap: 12px; }
+.harmonic-spectrum-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.harmonic-spectrum-heading strong { display: block; color: #f1c965; }
+.harmonic-spectrum-heading span { display: block; font-size: 0.875rem; }
+.harmonic-spectrum-heading svg { flex: 0 0 48px; width: 48px; margin: 0; }
+.harmonic-axis-label { display: block; margin: 6px 0 4px; color: #b7c1c3; font-size: 0.75rem; }
+.harmonic-plot { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); }
+.harmonic-column { min-width: 0; text-align: center; }
+.harmonic-bar-track { display: flex; align-items: end; justify-content: center; height: 64px; border-bottom: 1px solid #7d898c; background: repeating-linear-gradient(to top, transparent 0, transparent 15px, #7d898c25 15px, #7d898c25 16px); }
+.harmonic-bar { width: 6px; max-width: 50%; background: #f1c965; border-radius: 2px 2px 0 0; }
+.harmonic-tick { display: block; padding-top: 3px; color: #d5dbda; font-size: 0.75rem; }
+.synth-tutorial .harmonic-frequency-label { margin: -6px 0 0; text-align: right; color: #b7c1c3; font-size: 0.75rem; }
+.synth-tutorial .harmonic-key { margin: 0; font-size: 0.875rem; }
+@media (min-width: 801px) {
+  .harmonic-comparison { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .harmonic-spectrum-heading { flex-wrap: wrap; }
+  .harmonic-frequency-label, .harmonic-key { grid-column: 1 / -1; }
+}
 .tutorial-visual-labels { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin-bottom: 8px; font-size: 0.875rem; font-weight: 600; }
 .tutorial-visual figcaption { max-width: 65ch; margin-top: 8px; }
 .synth-tutorial .tutorial-sketch-note { color: #b7c1c3; font-size: 0.875rem; }

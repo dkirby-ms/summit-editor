@@ -5,9 +5,47 @@ type ExplainerLesson = Pick<TutorialLesson, 'takeaway' | 'concept' | 'challenge'
 
 function ConceptSketch({ lesson }: { lesson: ExplainerLesson }) {
   const id = useId()
+  if (lesson.visual === 'harmonics') {
+    return (
+      <figure className="tutorial-visual">
+        <h4>See the idea</h4>
+        <div className="harmonic-comparison" role="img" aria-label="Harmonic spectra: Sine has one frequency; Sawtooth has a series of harmonics" aria-describedby={`${id}-description`}>
+          {(['Sine', 'Sawtooth'] as const).map((waveform) => (
+            <div className="harmonic-spectrum" key={waveform}>
+              <div className="harmonic-spectrum-heading">
+                <div><strong>{waveform}</strong><span>{waveform === 'Sine' ? 'One frequency' : 'Many harmonics'}</span></div>
+                <svg viewBox="0 0 80 32" aria-hidden="true">
+                  <path className="sketch-signal" d={waveform === 'Sine'
+                    ? 'M 2 16 Q 11 -8 20 16 T 38 16 T 56 16 T 74 16'
+                    : 'M 2 28 L 20 4 V 28 L 38 4 V 28 L 56 4 V 28 L 74 4'} />
+                </svg>
+              </div>
+              <span className="harmonic-axis-label">Relative strength</span>
+              <div className="harmonic-plot">
+                {Array.from({ length: 8 }, (_, index) => {
+                  const harmonic = index + 1
+                  const strength = waveform === 'Sine' && harmonic > 1 ? 0 : 100 / harmonic
+                  return (
+                    <div className="harmonic-column" key={harmonic}>
+                      <div className="harmonic-bar-track">
+                        <span className="harmonic-bar" style={{ height: `${strength}%` }} />
+                      </div>
+                      <span className="harmonic-tick">{harmonic}f</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+          <p className="harmonic-frequency-label">Frequency →</p>
+          <p className="harmonic-key"><strong>1f</strong> = the note you play. <strong>2f–8f</strong> = higher multiples of that frequency.</p>
+        </div>
+        <figcaption id={`${id}-description`}>{lesson.visualCaption}</figcaption>
+      </figure>
+    )
+  }
   const envelope = lesson.visual === 'amplitude' || lesson.visual === 'brightness'
   const labels = {
-    harmonics: ['Top: Sine, one frequency', 'Bottom: Sawtooth, many harmonics'],
     blend: ['Top: Oscillator 1', 'Bottom: Oscillator 2, slightly detuned'],
     filter: ['Low frequencies pass', 'Above cutoff: reduced'],
     amplitude: ['Attack / Decay / Sustain / Release', 'Loudness over time'],
@@ -18,16 +56,9 @@ function ConceptSketch({ lesson }: { lesson: ExplainerLesson }) {
   return (
     <figure className="tutorial-visual">
       <h4>See the idea</h4>
-      <span className="tutorial-sketch-note">Concept sketch, not a live audio measurement</span>
       <svg viewBox="0 0 320 160" role="img" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`}>
         <title id={`${id}-title`}>{labels.join('. ')}</title>
         <desc id={`${id}-description`}>{lesson.visualCaption}</desc>
-        {lesson.visual === 'harmonics' && <>
-          <path className="sketch-axis" d="M 12 65 H 308 M 12 145 H 308" />
-          <path className="sketch-signal" d="M 30 65 V 15" />
-          {[50, 25, 17, 12, 10, 8, 7, 6].map((height, index) =>
-            <path key={index} className="sketch-signal" d={`M ${30 + index * 36} 145 v ${-height}`} />)}
-        </>}
         {lesson.visual === 'blend' && <>
           <path className="sketch-axis" d="M 12 40 H 308 M 12 120 H 308" />
           <path className="sketch-signal" d="M 12 40 Q 30 0 48 40 T 84 40 T 120 40 T 156 40 T 192 40 T 228 40 T 264 40 T 300 40" />
@@ -64,7 +95,6 @@ function ConceptSketch({ lesson }: { lesson: ExplainerLesson }) {
         {labels.map((label) => <span key={label}>{label}</span>)}
       </div>
       {envelope && <div className="tutorial-visual-labels"><span>Key-down: start</span><span>Key-up: release begins</span></div>}
-      {lesson.visual === 'harmonics' && <p className="tutorial-sketch-note">Left to right: increasing frequency. Taller bars: stronger harmonics.</p>}
       {lesson.visual === 'filter' && <p className="tutorial-sketch-note">Dashed marker: cutoff. Bump: resonance.</p>}
       <figcaption>{lesson.visualCaption}</figcaption>
     </figure>

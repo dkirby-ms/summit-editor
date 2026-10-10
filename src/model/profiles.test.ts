@@ -45,6 +45,7 @@ describe('synth profiles', () => {
       modulationMatrix: false,
       sysex: false,
     })
+
     expect(webSynthParameters.every((parameter) => !('address' in parameter))).toBe(true)
     expect(webSynthProfile.presets).toBe(webSynthPresets)
     for (const preset of webSynthPresets) {
@@ -58,5 +59,28 @@ describe('synth profiles', () => {
       'filterAttack', 'filterDecay', 'filterSustain', 'filterRelease', 'lfoRate',
       'lfoPitchDepth', 'lfoFilterDepth',
     ]))
+  })
+
+  it('uses shared hardware-sized physical envelope limits without changing MIDI scales', () => {
+    for (const profile of [summitProfile, ultranovaProfile]) {
+      const envelopeParameters = profile.parameters.filter((parameter) => /(?:Attack|Decay|Sustain|Release)$/.test(parameter.id))
+      expect(envelopeParameters.length).toBeGreaterThanOrEqual(8)
+      for (const parameter of envelopeParameters) {
+        expect(parameter.min).toBe(0)
+        expect(parameter.max).toBe(127)
+      }
+    }
+    for (const prefix of ['amp', 'filter']) {
+      for (const [stage, max] of Object.entries({ Attack: 20000, Decay: 22000, Sustain: 100, Release: 30000 })) {
+        const parameter = webSynthParameters.find((parameter) => parameter.id === `${prefix}${stage}`)
+        expect(parameter).toMatchObject({ min: 0, max })
+      }
+    }
+    for (const preset of webSynthPresets) {
+      for (const parameter of webSynthParameters) {
+        expect(preset.values[parameter.id]).toBeGreaterThanOrEqual(parameter.min)
+        expect(preset.values[parameter.id]).toBeLessThanOrEqual(parameter.max)
+      }
+    }
   })
 })

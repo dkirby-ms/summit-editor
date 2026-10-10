@@ -17,6 +17,25 @@ describe('Web Synth browser presets', () => {
     expect(saveWebSynthPreset('Another', webSynthDefaultValues)).toHaveLength(2)
   })
 
+  it('retains old millisecond presets and saves the expanded envelope limits', () => {
+    const oldValues = { ...webSynthDefaultValues, ampAttack: 5000, ampDecay: 5000, ampRelease: 8000 }
+    const oldPreset = { id: 'user-old', name: 'Existing pad', values: oldValues }
+    const raw = JSON.stringify([oldPreset])
+    localStorage.setItem(webSynthPresetStorageKey, raw)
+    expect(readWebSynthPresets()).toEqual([oldPreset])
+    expect(localStorage.getItem(webSynthPresetStorageKey)).toBe(raw)
+    const values = {
+      ...webSynthDefaultValues,
+      ampAttack: 20000, ampDecay: 22000, ampRelease: 30000,
+      filterAttack: 20000, filterDecay: 22000, filterRelease: 30000,
+    }
+    expect(saveWebSynthPreset('Long pad', values)[1].values).toEqual(values)
+    expect(readWebSynthPresets()[1].values).toEqual(values)
+    for (const [id, maximum] of Object.entries(values).filter(([id]) => /^(amp|filter)(Attack|Decay|Release)$/.test(id))) {
+      expect(() => saveWebSynthPreset('Out of range', { ...values, [id]: maximum + 1 })).toThrow(/invalid/)
+    }
+  })
+
   it('rejects blank names and incomplete or invalid parameter sets', () => {
     expect(() => saveWebSynthPreset(' ', webSynthDefaultValues)).toThrow(/name/)
     expect(() => saveWebSynthPreset('x'.repeat(65), webSynthDefaultValues)).toThrow(/name/)
