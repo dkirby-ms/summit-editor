@@ -381,15 +381,15 @@ Dependencies:
 
 | Group | Decision or feedback item | Status | Owner | Rationale or input needed | Evidence | Planning impact |
 |-------|---------------------------|--------|-------|---------------------------|----------|-----------------|
-| D1 | Profile/audio boundary versus one shared MIDI/audio transport | Evidence-backed plan choice | Planner | MIDI encoding, Web Audio scheduling, and Summit SysEx/matrix behavior have different responsibilities; retain shared profile/parameter metadata and separate output paths. | Research Findings 1–3; C6–C10; W1–W4 | Drives P01 and P02 boundaries without a further user decision. |
-| D2 | Hosting and future platform services | Confirmed | User | No backend/identity/sharing requirements or service choice exists yet. | User direction; Research Finding 4; C12–C16 | Avoid hosting/vendor coupling in P01–P02. |
-| D3 | Profile IDs and patch-state exchange | Confirmed | User | Only Summit exists; virtual profile and cross-device sharing needs are not validated. | User direction; Research Finding 4; C7, C13–C16 | Include stable identity and plain serializable state; exclude persistence and interchange migrations. |
+| D1 | Profile/audio boundary versus one shared MIDI/audio transport | Evidence-backed plan choice | Planner | MIDI encoding, Web Audio scheduling, and Summit SysEx/matrix behavior have different responsibilities; retain shared profile/parameter metadata and separate output paths. | Research Q1–Q3; C6–C10; W1–W4 | Drives P01 and P02 boundaries without a further user decision. |
+| D2 | Hosting and future platform services | Confirmed | User | No backend/identity/sharing requirements or service choice exists yet. | User direction; Research Q5; C12–C16 | Avoid hosting/vendor coupling in P01–P02. |
+| D3 | Profile IDs and patch-state exchange | Confirmed | User | Only Summit exists; virtual profile and cross-device sharing needs are not validated. | User direction; Research Q5; C7, C13–C16 | Include stable identity and plain serializable state; exclude persistence and interchange migrations. |
 
 ## Planning Readiness and Next Step
 
 | Field | Record |
 |-------|--------|
-| Planning execution and readiness | Plan draft complete; readiness pending independent standard critique and final consistency checks. |
+| Planning execution and readiness | Plan draft complete; not ready pending independent standard critique and final consistency checks. |
 | Decision participation | User-owned; standalone RPI invocation. |
 | Blockers | None. |
 | Latest critique | `.copilot-tracking/reviews/plans/2026-10-09/multi-synth-patch-lab-plan-critique.md` not yet created. |
@@ -473,7 +473,7 @@ Dependencies:
 ## Critique Disposition
 
 * Critique setting and provenance: Standard; default.
-* Critique status: Not run; phase/task breakdown and diagrams are in progress.
+* Critique status: Started; standard initial critique of the implementation-ready draft.
 * Latest critique and verdict: `.copilot-tracking/reviews/plans/2026-10-09/multi-synth-patch-lab-plan-critique.md` not yet created.
 * Earlier critiques: None.
 * Limitations: None.
