@@ -24,13 +24,12 @@ type NrpnAddress = { type: 'nrpn'; msb: number; lsb: number }
 
 export type ParameterDefinition = {
   id: string
-  section: ParameterSection
+  section: string
   label: string
   shortLabel: string
   min: number
   max: number
   defaultValue: number
-  address: CcAddress | NrpnAddress
   /** Labels for raw values min..max, indexed by `value - min`. */
   valueLabels?: readonly string[]
   /** Raw value shown as zero; displayed values are signed (`raw - displayOffset`). */
@@ -39,6 +38,11 @@ export type ParameterDefinition = {
   fader?: boolean
   /** Renders as the module's featured, larger knob. */
   prominent?: boolean
+}
+
+export type SummitParameterDefinition = ParameterDefinition & {
+  section: ParameterSection
+  address: CcAddress | NrpnAddress
   /** Value encoding is not hardware-verified, so reset-to-defaults does not transmit it. */
   unverifiedEncoding?: boolean
 }
@@ -206,17 +210,18 @@ export const summitParameters = [
   { id: 'chorusLevel', section: 'Effects', label: 'Chorus level', shortLabel: 'Chorus', min: 0, max: 127, defaultValue: 0, address: { type: 'cc', controller: 105 } },
   { id: 'delayLevel', section: 'Effects', label: 'Delay level', shortLabel: 'Delay', min: 0, max: 127, defaultValue: 0, address: { type: 'cc', controller: 108 } },
   { id: 'reverbLevel', section: 'Effects', label: 'Reverb level', shortLabel: 'Reverb', min: 0, max: 127, defaultValue: 0, address: { type: 'cc', controller: 112 } },
-] as const satisfies readonly ParameterDefinition[]
+] as const satisfies readonly SummitParameterDefinition[]
 
-export type ParameterId = (typeof summitParameters)[number]['id']
+export type SummitParameterId = (typeof summitParameters)[number]['id']
+export type ParameterId = SummitParameterId
 
-export const parameterById = new Map<ParameterId, ParameterDefinition>(
+export const parameterById = new Map<SummitParameterId, SummitParameterDefinition>(
   summitParameters.map((parameter) => [parameter.id, parameter]),
 )
 
 export const defaultPatchValues = Object.fromEntries(
   summitParameters.map((parameter) => [parameter.id, parameter.defaultValue]),
-) as Record<ParameterId, number>
+) as Record<SummitParameterId, number>
 
 export function getParameterValueLabel(parameter: ParameterDefinition, value: number) {
   const label = parameter.valueLabels?.[value - parameter.min]

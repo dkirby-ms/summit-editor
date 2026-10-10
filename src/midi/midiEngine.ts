@@ -1,13 +1,7 @@
-import { decodeCcMessage, encodeParameter } from './codec'
-import { SUMMIT_EDIT_BUFFER_REQUEST, validateSysex } from './sysex'
-import {
-  parameterById,
-  summitParameters,
-  type ParameterDefinition,
-  type ParameterId,
-} from '../model/parameters'
-import { usePatchStore } from '../model/patchStore'
+import { SummitMidiAdapter } from './summitMidiAdapter'
+import type { ParameterId } from '../model/parameters'
 import type { ModMatrixField } from '../model/modMatrix'
+import { usePatchStore } from '../model/patchStore'
 
 export type MidiStatus =
   | 'unsupported'
@@ -23,7 +17,7 @@ export type MidiPortInfo = {
   state: string
 }
 
-type MidiMessageEventLike = { data: Uint8Array }
+export type MidiMessageEventLike = { data: Uint8Array }
 
 export type MidiInputLike = MidiPortInfo & {
   onmidimessage: ((event: MidiMessageEventLike) => void) | null
@@ -39,7 +33,7 @@ export type MidiAccessLike = {
   onstatechange: (() => void) | null
 }
 
-type RequestMidiAccess = () => Promise<MidiAccessLike>
+type RequestMidiAccess = (options: { sysex: boolean }) => Promise<MidiAccessLike>
 
 export type MidiSnapshot = {
   status: MidiStatus
@@ -52,6 +46,11 @@ export type MidiSnapshot = {
   activity: string
 }
 
+export type MidiInputNoteEvent =
+  | { type: 'noteOn'; note: number; velocity: number }
+  | { type: 'noteOff'; note: number }
+  | { type: 'allNotesOff' }
+
 const unsupportedSnapshot: MidiSnapshot = {
   status: 'unsupported',
   inputs: [],
@@ -63,7 +62,7 @@ const unsupportedSnapshot: MidiSnapshot = {
   activity: 'Web MIDI is not available in this browser.',
 }
 
-function browserRequestAccess(): Promise<MidiAccessLike> {
+function browserRequestAccess(options: { sysex: boolean }): Promise<MidiAccessLike> {
   const midiNavigator = navigator as Navigator & {
     requestMIDIAccess?: (options: { sysex: boolean }) => Promise<MidiAccessLike>
   }
@@ -72,19 +71,18 @@ function browserRequestAccess(): Promise<MidiAccessLike> {
     return Promise.reject(new Error('Web MIDI is not available in this browser.'))
   }
 
-  return midiNavigator.requestMIDIAccess({ sysex: true }) as unknown as Promise<MidiAccessLike>
+  return midiNavigator.requestMIDIAccess(options) as unknown as Promise<MidiAccessLike>
 }
 
 export class SummitMidiEngine {
   private access: MidiAccessLike | null = null
   private readonly requestAccess: RequestMidiAccess
-  private inboundNrpn: { msb: number | null; lsb: number | null } = { msb: null, lsb: null }
-  private lastWasNrpnDataEntry = false
-  private inboundModMatrixSlot: number | null = null
   private selectedInput: MidiInputLike | null = null
   private selectedOutput: MidiOutputLike | null = null
   private readonly listeners = new Set<() => void>()
+  private readonly inputNoteListeners = new Set<(event: MidiInputNoteEvent) => void>()
   private snapshot: MidiSnapshot
+  private readonly adapter: SummitMidiAdapter
 
   constructor(
     requestAccess: RequestMidiAccess = browserRequestAccess,
@@ -94,6 +92,12 @@ export class SummitMidiEngine {
     this.snapshot = supported
       ? { ...unsupportedSnapshot, status: 'idle', activity: 'MIDI access has not been requested.' }
       : unsupportedSnapshot
+    this.adapter = new SummitMidiAdapter(
+      this.sendMessage,
+      () => this.selectedOutput !== null,
+      (next) => this.update(next),
+      () => this.snapshot.channel,
+    )
   }
 
   subscribe = (listener: () => void) => {
@@ -102,6 +106,11 @@ export class SummitMidiEngine {
   }
 
   getSnapshot = () => this.snapshot
+
+  subscribeToInputNotes = (listener: (event: MidiInputNoteEvent) => void) => {
+    this.inputNoteListeners.add(listener)
+    return () => this.inputNoteListeners.delete(listener)
+  }
 
   private update(next: Partial<MidiSnapshot>) {
     this.snapshot = { ...this.snapshot, ...next }
@@ -113,7 +122,7 @@ export class SummitMidiEngine {
     this.update({ status: 'requesting', error: null, activity: 'Requesting MIDI and SysEx access...' })
 
     try {
-      this.access = await this.requestAccess()
+      this.access = await this.requestAccess({ sysex: usePatchStore.getState().activeProfileId === 'summit' })
       this.access.onstatechange = () => this.refreshPorts()
       this.refreshPorts()
       this.update({ status: 'ready', activity: 'MIDI access granted.' })
@@ -148,14 +157,18 @@ export class SummitMidiEngine {
   }
 
   selectInput(id: string) {
+    if (this.selectedInput && this.selectedInput.id !== id) this.notifyInputNotes({ type: 'allNotesOff' })
     if (this.selectedInput) this.selectedInput.onmidimessage = null
-    this.inboundNrpn = { msb: null, lsb: null }
-    this.lastWasNrpnDataEntry = false
-    this.inboundModMatrixSlot = null
+    this.adapter.resetInputState()
     this.selectedInput = this.access
       ? Array.from(this.access.inputs.values()).find((input) => input.id === id) ?? null
       : null
-    if (this.selectedInput) this.selectedInput.onmidimessage = this.handleMessage
+    if (this.selectedInput) {
+      this.selectedInput.onmidimessage = (event) => {
+        this.handleInputNote(event)
+        this.adapter.handleMessage(event, this.snapshot.channel)
+      }
+    }
     this.update({
       selectedInputId: this.selectedInput?.id ?? '',
       activity: this.selectedInput ? `Listening to ${this.selectedInput.name}.` : 'No MIDI input selected.',
@@ -163,9 +176,14 @@ export class SummitMidiEngine {
   }
 
   selectOutput(id: string) {
-    this.selectedOutput = this.access
+    const nextOutput = this.access
       ? Array.from(this.access.outputs.values()).find((output) => output.id === id) ?? null
       : null
+    if (this.selectedOutput && this.selectedOutput.id !== nextOutput?.id) {
+      this.notifyInputNotes({ type: 'allNotesOff' })
+      this.allNotesOff()
+    }
+    this.selectedOutput = nextOutput
     this.update({
       selectedOutputId: this.selectedOutput?.id ?? '',
       activity: this.selectedOutput ? `Sending to ${this.selectedOutput.name}.` : 'No MIDI output selected.',
@@ -174,31 +192,18 @@ export class SummitMidiEngine {
 
   setChannel(channel: number) {
     const nextChannel = Math.min(16, Math.max(1, Math.round(channel)))
+    if (nextChannel !== this.snapshot.channel) {
+      this.notifyInputNotes({ type: 'allNotesOff' })
+    }
     this.update({ channel: nextChannel })
   }
 
   sendParameter(id: ParameterId, value: number) {
-    const parameter = parameterById.get(id)
-    if (!parameter || !this.selectedOutput) return false
-    encodeParameter(this.snapshot.channel, parameter, value).forEach((message) => this.selectedOutput?.send(message))
-    this.update({ activity: `Sent ${parameter.shortLabel}: ${value}.` })
-    return true
+    return this.adapter.sendParameter(id, value)
   }
 
   sendModMatrixValue(slotIndex: number, field: ModMatrixField, value: number) {
-    if (!this.selectedOutput || !Number.isInteger(slotIndex) || slotIndex < 0 || slotIndex >= 16) return false
-    const fieldIndex = { sourceA: 0, sourceB: 1, depth: 2, destination: 3 }[field]
-    this.sendNrpnMessages(0, 125, slotIndex)
-    this.sendNrpnMessages(slotIndex + 1, fieldIndex, value)
-    this.update({ activity: `Sent mod matrix slot ${slotIndex + 1} ${field}.` })
-    return true
-  }
-
-  private sendNrpnMessages(msb: number, lsb: number, value: number) {
-    const channelStatus = 0xb0 | (this.snapshot.channel - 1)
-    this.selectedOutput?.send([channelStatus, 99, msb])
-    this.selectedOutput?.send([channelStatus, 98, lsb])
-    this.selectedOutput?.send([channelStatus, 6, value])
+    return this.adapter.sendModMatrixValue(slotIndex, field, value)
   }
 
   sendNoteOn(note: number, velocity = 100) {
@@ -226,113 +231,48 @@ export class SummitMidiEngine {
   }
 
   resetHardwareToDefaults() {
-    if (!this.selectedOutput) return false
-    summitParameters.forEach((parameter: ParameterDefinition) => {
-      if (!parameter.unverifiedEncoding) this.sendParameter(parameter.id as ParameterId, parameter.defaultValue)
-    })
-    usePatchStore.getState().modMatrix.forEach((slot, slotIndex) => {
-      this.sendModMatrixValue(slotIndex, 'sourceA', slot.sourceA)
-      this.sendModMatrixValue(slotIndex, 'sourceB', slot.sourceB)
-      this.sendModMatrixValue(slotIndex, 'depth', slot.depth)
-      this.sendModMatrixValue(slotIndex, 'destination', slot.destination)
-    })
-    this.update({ activity: 'Sent registered and community-mapped matrix defaults to Summit.' })
-    return true
+    return this.adapter.resetHardwareToDefaults()
   }
 
   sendSysex(data: Uint8Array) {
-    const validation = validateSysex(data)
-    if (!validation.valid) {
-      this.update({ status: 'error', error: validation.reason, activity: validation.reason ?? 'Invalid SysEx.' })
-      return false
-    }
-    if (!this.selectedOutput) return false
-    this.selectedOutput.send(data)
-    this.update({ error: null, activity: `Sent ${data.length} SysEx bytes.` })
-    return true
+    return this.adapter.sendSysex(data)
   }
 
   requestEditBuffer() {
-    const sent = this.sendSysex(SUMMIT_EDIT_BUFFER_REQUEST)
-    if (sent) this.update({ activity: 'Experimental edit-buffer request sent.' })
-    return sent
+    return this.adapter.requestEditBuffer()
   }
 
-  private handleMessage = (event: MidiMessageEventLike) => {
-    const data = new Uint8Array(event.data)
-    if (data[0] === 0xf0) {
-      const validation = validateSysex(data)
-      if (validation.valid) {
-        usePatchStore.getState().setRawPatch(data, 'device')
-        this.update({ activity: `Captured ${data.length} SysEx bytes from Summit.` })
-      }
-      return
-    }
+  private sendMessage = (data: number[] | Uint8Array) => {
+    if (!this.selectedOutput) return false
+    this.selectedOutput.send(data)
+    return true
+  }
 
-    const message = decodeCcMessage(data)
-    if (!message || message.channel !== this.snapshot.channel) return
+  private handleInputNote(event: MidiMessageEventLike) {
+    const data = event.data
+    if (data.length < 3 || (data[0] & 0x0f) + 1 !== this.snapshot.channel) return
+    const status = data[0] & 0xf0
+    if (status === 0x90 && data[2] > 0) {
+      this.notifyInputNotes({ type: 'noteOn', note: data[1], velocity: data[2] })
+    } else if (status === 0x80 || status === 0x90) {
+      this.notifyInputNotes({ type: 'noteOff', note: data[1] })
+    } else if (status === 0xb0 && (data[1] === 120 || data[1] === 123)) {
+      this.notifyInputNotes({ type: 'allNotesOff' })
+    }
+  }
 
-    // A CC 38 directly after NRPN data entry is a data-entry LSB, not Osc 2 ModEnv2 > Pitch.
-    const followsDataEntry = this.lastWasNrpnDataEntry
-    this.lastWasNrpnDataEntry = false
-    if (message.controller === 38 && followsDataEntry) return
-
-    if (message.controller === 99) {
-      this.inboundNrpn = { msb: message.value === 127 ? null : message.value, lsb: null }
-      return
-    }
-    if (message.controller === 98) {
-      this.inboundNrpn.lsb = message.value === 127 ? null : message.value
-      return
-    }
-    if (message.controller === 101 || message.controller === 100) {
-      this.inboundNrpn = { msb: null, lsb: null }
-      this.inboundModMatrixSlot = null
-      return
-    }
-    if (message.controller === 6 && this.inboundNrpn.msb !== null && this.inboundNrpn.lsb !== null) {
-      this.lastWasNrpnDataEntry = true
-      if (this.inboundNrpn.msb === 0 && this.inboundNrpn.lsb === 125) {
-        this.inboundModMatrixSlot = message.value < 16 ? message.value : null
-        return
-      }
-      const parameter = summitParameters.find(
-        (candidate) => candidate.address.type === 'nrpn'
-          && candidate.address.msb === this.inboundNrpn.msb
-          && candidate.address.lsb === this.inboundNrpn.lsb,
-      )
-      if (parameter) {
-        usePatchStore.getState().setValue(parameter.id, message.value)
-        this.update({ activity: `Received ${parameter.shortLabel}: ${message.value}.` })
-        this.inboundModMatrixSlot = null
-        return
-      }
-      const field = this.inboundNrpn.lsb < 4
-        ? (['sourceA', 'sourceB', 'depth', 'destination'] as const)[this.inboundNrpn.lsb]
-        : undefined
-      const slotIndex = this.inboundNrpn.msb - 1
-      if (field && this.inboundModMatrixSlot !== null && slotIndex === this.inboundModMatrixSlot) {
-        usePatchStore.getState().setModMatrixValue(slotIndex, field, message.value)
-        this.update({ activity: `Received mod matrix slot ${slotIndex + 1} ${field}.` })
-      }
-      this.inboundModMatrixSlot = null
-      return
-    }
-
-    const parameter = summitParameters.find(
-      (candidate) => candidate.address.type === 'cc' && candidate.address.controller === message.controller,
-    )
-    if (!parameter) return
-    usePatchStore.getState().setValue(parameter.id, message.value)
-    this.update({ activity: `Received ${parameter.shortLabel}: ${message.value}.` })
+  private notifyInputNotes(event: MidiInputNoteEvent) {
+    this.inputNoteListeners.forEach((listener) => listener(event))
   }
 
   destroy() {
+    this.notifyInputNotes({ type: 'allNotesOff' })
     if (this.selectedInput) this.selectedInput.onmidimessage = null
     if (this.access) this.access.onstatechange = null
     this.selectedInput = null
     this.selectedOutput = null
     this.listeners.clear()
+    this.inputNoteListeners.clear()
   }
 }
 

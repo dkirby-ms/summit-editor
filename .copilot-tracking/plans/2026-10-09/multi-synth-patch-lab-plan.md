@@ -11,8 +11,8 @@
 
 * Bottom line: Plan a two-phase foundation: profile-based Summit compatibility first, followed by a built-in Web Audio synthesizer. Keep hosting flexible and state serializable without adding platform services or freezing a patch-sharing format.
 * Why this matters: This preserves existing hardware editing while establishing a no-hardware instrument and a profile boundary that can evolve into tutorials and patch sharing later.
-* Planning result: The phase/task plan is drafted from completed research. Readiness awaits an independent standard critique and final consistency checks.
-* Confidence and uncertainty: High confidence in existing code boundaries and validation surfaces; audio behavior and scope need browser listening checks, while future identity, cloud, sharing, and gamification remain out of this foundation.
+* Planning result: Original and reopened tasks are complete. The user-confirmed Web Synth control-design requirement and both accepted review findings are implemented and validated.
+* Confidence and uncertainty: High confidence in the implemented code boundaries and validation results. The user confirmed audible output; detailed subjective timbre and release quality were not assessed. Future identity, cloud, sharing, and gamification remain out of this foundation.
 
 ### What You May Not Know
 
@@ -59,7 +59,7 @@ flowchart LR
     app -->|reads and updates| store
     profile -->|describes| summit
     profile -->|describes| audio
-    summit -->|owns| midi
+    summit -->|uses| midi
     store -->|isolates values by profile ID| profile
     keyboard -->|plays through active output| midi
     keyboard -->|plays through active output| audio
@@ -75,7 +75,7 @@ flowchart LR
 The Summit editor remains available through an explicit profile, while a profile-keyed state boundary and a separate browser-audio output path enable the built-in synth. MIDI availability remains optional for audio playback.
 
 <!-- rpi:phase id=P01 -->
-### [ ] P01: Establish profile-based model and preserve Summit editing
+### [x] P01: Establish profile-based model and preserve Summit editing
 
 Goals:
 * Replace implicit Summit-only model assumptions with explicit stable synth profiles while retaining Summit hardware editing as a complete profile. This establishes a safe foundation for adding the web synth without forcing future platform services or a cross-device patch contract.
@@ -99,7 +99,7 @@ flowchart LR
     app -->|reads and updates| store
     profile -->|describes| summit
     profile -->|describes| audio
-    summit -->|owns| midi
+    summit -->|uses| midi
     store -->|isolates values by profile ID| profile
     keyboard -->|plays through active output| midi
     keyboard -->|plays through active output| audio
@@ -121,7 +121,7 @@ flowchart LR
 Highlighted work: replace implicit Summit coupling in the UI, profile metadata, patch state, and hardware MIDI boundary. The built-in synth remains a later phase.
 
 <!-- rpi:task id=P01-T01 -->
-#### [ ] P01-T01: Define stable profile and parameter contracts
+#### [x] P01-T01: Define stable profile and parameter contracts
 
 Goals:
 * Profiles have stable identities, profile-owned parameter definitions/defaults, and declared capabilities so the UI and state layer can address devices without deriving identity from the Summit parameter array.
@@ -146,7 +146,7 @@ Dependencies:
 * None.
 
 <!-- rpi:task id=P01-T02 -->
-#### [ ] P01-T02: Isolate profile-specific patch state
+#### [x] P01-T02: Isolate profile-specific patch state
 
 Goals:
 * Editing values in one profile leaves another profile's values untouched, and the in-memory profile state can be represented as plain serializable values without adding persistence.
@@ -171,8 +171,12 @@ References:
 Dependencies:
 * P01-T01.
 
+Guidance:
+* Use the profile contract and local registry in [src/model/profiles.ts](../../../src/model/profiles.ts): `SynthProfile`, `SynthProfileId`, `synthProfileIds`, `summitProfile`, and `synthProfileById`.
+* Generic parameter presentation metadata is `ParameterDefinition`; Summit hardware-address metadata remains in `SummitParameterDefinition` in [src/model/parameters.ts](../../../src/model/parameters.ts).
+
 <!-- rpi:task id=P01-T03 -->
-#### [ ] P01-T03: Preserve Summit MIDI behavior behind a profile adapter
+#### [x] P01-T03: Preserve Summit MIDI behavior behind a profile adapter
 
 Goals:
 * Summit editing and hardware communication continue to work through profile-specific MIDI behavior instead of making Summit encoding rules universal.
@@ -180,6 +184,7 @@ Goals:
 Requirements:
 * FR-003, NFR-002.
 * Summit parameter CC/NRPN updates, inbound reflection, matrix handling, reset, SysEx capture/import/export, and MIDI note output retain current behavior.
+* Summit inbound parameter reflection updates Summit values only; overlapping Summit controller IDs cannot mutate the Web Synth patch while Web Synth is active.
 * MIDI availability and permission errors remain separate from built-in audio readiness.
 * Existing codec and MIDI-engine regression cases pass; tests cover profile dispatch and Summit-specific operations.
 
@@ -197,8 +202,11 @@ References:
 Dependencies:
 * P01-T01, P01-T02.
 
+Guidance:
+* Keep Summit hardware encoding on `SummitParameterDefinition` and profile identity/capabilities in [src/model/profiles.ts](../../../src/model/profiles.ts); do not require hardware addresses on profile-neutral parameter definitions.
+
 <!-- rpi:task id=P01-T04 -->
-#### [ ] P01-T04: Select and render the active profile
+#### [x] P01-T04: Select and render the active profile
 
 Goals:
 * Users can select a registered synth profile, and the app renders the active profile's own controls and available hardware-specific sections.
@@ -207,11 +215,13 @@ Requirements:
 * FR-001, FR-002, FR-003, NFR-001, NFR-002.
 * Summit remains available and retains current editor controls, modulation matrix, keyboard note lifecycle, reset, and raw SysEx workflows.
 * Profile selection uses stable IDs and keeps each profile's edits isolated.
+* Summit inbound controller reflection cannot alter the currently active non-Summit profile.
 * The UI and profile registry do not require a GitHub Pages path or backend service.
 
 Details:
 * Existing [src/App.tsx](../../../src/App.tsx) directly renders Summit sections and ties its virtual keyboard to a selected MIDI output. P01 registers Summit; P02 adds the built-in synth profile.
 * Keep reusable controls where appropriate, but profile-specific panel composition belongs with the selected profile. Keep audio status and MIDI status separate.
+* Supported assumption: Keep Summit as the initial selected profile to preserve the current editor's launch behavior; require a user gesture to initialize or resume Web Audio after switching to the built-in synth.
 * Existing app and keyboard tests exercise the behaviors to preserve. This task should keep accessibility semantics and control labels intact while adding profile selection.
 
 References:
@@ -221,6 +231,10 @@ References:
 
 Dependencies:
 * P01-T01, P01-T02, P01-T03.
+
+Guidance:
+* Resolve selectable profile metadata from `synthProfileById`/`synthProfiles` in [src/model/profiles.ts](../../../src/model/profiles.ts); these currently register the Summit profile only, with the web-synth ID reserved for P02.
+* Summit parameter, matrix, SysEx, and inbound-message handling is isolated in [src/midi/summitMidiAdapter.ts](../../../src/midi/summitMidiAdapter.ts); [src/midi/midiEngine.ts](../../../src/midi/midiEngine.ts) retains Web MIDI port lifecycle and keyboard note transport.
 
 <!-- rpi:phase id=P02 -->
 ### [ ] P02: Add an independent built-in Web Audio synth
@@ -247,7 +261,7 @@ flowchart LR
     app -->|reads and updates| store
     profile -->|describes| summit
     profile -->|describes| audio
-    summit -->|owns| midi
+    summit -->|uses| midi
     store -->|isolates values by profile ID| profile
     keyboard -->|plays through active output| midi
     keyboard -->|plays through active output| audio
@@ -265,7 +279,7 @@ flowchart LR
 Highlighted work: add the built-in audio engine and route active-profile keyboard performance to it. Summit MIDI remains a separate output.
 
 <!-- rpi:task id=P02-T01 -->
-#### [ ] P02-T01: Define the web-synth profile and playable controls
+#### [x] P02-T01: Define the web-synth profile and playable controls
 
 Goals:
 * The built-in profile exposes its own defaults, presets, and controls for shaping the specified two-oscillator subtractive synth.
@@ -273,6 +287,7 @@ Goals:
 Requirements:
 * FR-001, FR-002, FR-004, FR-007, NFR-003.
 * The web synth has two selectable waveform oscillators per voice, detune, low-pass filter cutoff/resonance/filter-envelope amount, amp and filter ADSR, and a shared pitch/filter LFO.
+* The shared LFO's rate and its pitch and filter modulation depths are user-adjustable.
 * Initial built-in presets are available and apply complete profile-specific values.
 * Web-synth controls do not expose Summit-only matrix or SysEx actions.
 
@@ -288,8 +303,12 @@ References:
 Dependencies:
 * P01-T01, P01-T02, P01-T04.
 
+Guidance:
+* The web-synth schema, defaults, and complete preset values are in [src/model/webSynthProfile.ts](../../../src/model/webSynthProfile.ts), registered as `webSynthProfile` in [src/model/profiles.ts](../../../src/model/profiles.ts).
+* Apply a full preset through `usePatchStore.getState().applyProfileValues(profileId, preset.values)`; it validates completeness and clamps each value against the selected profile's definitions in [src/model/patchStore.ts](../../../src/model/patchStore.ts).
+
 <!-- rpi:task id=P02-T02 -->
-#### [ ] P02-T02: Implement bounded polyphonic audio and modulation
+#### [x] P02-T02: Implement bounded polyphonic audio and modulation
 
 Goals:
 * The web-synth profile produces bounded, polyphonic sound with predictable note release and smooth modulation.
@@ -297,7 +316,7 @@ Goals:
 Requirements:
 * FR-004, FR-005, NFR-004.
 * At most eight notes sound simultaneously; note-off and panic release active voices without leaving stuck notes.
-* Each active voice contains two independently selectable waveform oscillators and the specified filter/envelope behavior; one shared LFO can modulate pitch and/or filter.
+* Each active voice contains two independently selectable waveform oscillators and the specified filter/envelope behavior; one shared LFO supports both pitch and filter modulation destinations with user-adjustable rate and independent destination depths.
 * Audio starts or resumes only after a user interaction and audio initialization failures are exposed rather than silently treated as ready.
 * Continuous changes and scheduled note transitions use smoothed AudioParam operations where suitable.
 
@@ -314,8 +333,12 @@ References:
 Dependencies:
 * P02-T01.
 
+Guidance:
+* Map serializable web-synth values from [src/model/webSynthProfile.ts](../../../src/model/webSynthProfile.ts) to AudioParams; the schema values are UI-facing ranges and carry no Summit MIDI encoding.
+* The eight-voice engine and its independent `idle`/`starting`/`ready`/`error` snapshot are implemented by [src/audio/webAudioSynth.ts](../../../src/audio/webAudioSynth.ts). The next task can wire `start`, `setParameters`, `noteOn`, `noteOff`, `allNotesOff`, `subscribe`, and `getSnapshot` to the active profile UI.
+
 <!-- rpi:task id=P02-T03 -->
-#### [ ] P02-T03: Connect controls and keyboard events to the audio output
+#### [x] P02-T03: Connect controls and keyboard events to the audio output
 
 Goals:
 * Changing active synth controls audibly updates the Web Audio engine, and virtual-keyboard or available Web MIDI note events reach the selected active output.
@@ -324,12 +347,16 @@ Requirements:
 * FR-005, FR-006, FR-007, NFR-001, NFR-004.
 * Synth parameter edits update corresponding audio parameters without abrupt discontinuities where smoothing applies.
 * Virtual keyboard press/release, pointer cancellation, collapse, resize, and panic behavior work for the built-in synth and remain covered for Summit MIDI.
+* Virtual piano keys can start and release notes using the computer keyboard, with keyboard interaction covered by regression tests.
 * Available Web MIDI input is optional and its permission/unavailability cannot prevent pointer/keyboard use of Web Audio.
 * Audio and MIDI readiness/errors are surfaced independently.
+* Web Synth continuous controls use rotary encoders styled consistently with Summit controls; discrete waveform choices remain selectors.
+* Amp and filter envelopes use the Summit ADSR graph presentation and four vertical sliders for attack, decay, sustain, and release.
 
 Details:
 * Current virtual keyboard supports note lifecycle and cleanup paths with Summit MIDI output; retain those UI guarantees when routing performance events to active output.
 * Do not require MIDI input as a prerequisite for audio interaction. Preserve the existing Summit keyboard regression cases and add equivalent web-synth lifecycle coverage.
+* Reuse the accessible `RotaryControl` and `EnvelopeGraph` patterns in [src/App.tsx](../../../src/App.tsx), extending only as needed for Web Synth units/ranges. Keep waveform controls as discrete selects and expose envelope sliders with vertical orientation.
 
 References:
 * [src/App.tsx](../../../src/App.tsx): existing virtual keyboard integration.
@@ -340,8 +367,12 @@ References:
 Dependencies:
 * P02-T01, P02-T02.
 
+Guidance:
+* Use the registered `webSynthProfile`/`webSynthPresets` and profile-aware `applyProfileValues` action from [src/model/profiles.ts](../../../src/model/profiles.ts) and [src/model/patchStore.ts](../../../src/model/patchStore.ts) for UI preset selection and control state.
+* The app binds a `WebAudioSynth` singleton from [src/audio/webAudioSynth.ts](../../../src/audio/webAudioSynth.ts) to web-profile controls and virtual-keyboard callbacks. [src/midi/midiEngine.ts](../../../src/midi/midiEngine.ts) publishes normalized `subscribeToInputNotes` events and requests SysEx permission only for the Summit profile; preserve separate audio/MIDI status and route input notes to the active profile.
+
 <!-- rpi:task id=P02-T04 -->
-#### [ ] P02-T04: Verify profile, audio, and hosting-independent behavior
+#### [x] P02-T04: Verify profile, audio, and hosting-independent behavior
 
 Goals:
 * The profile refactor and built-in synth have reproducible automated regression evidence and verified browser playback behavior without assuming a particular hosting provider.
@@ -349,8 +380,9 @@ Goals:
 Requirements:
 * NFR-001, NFR-002, NFR-003, NFR-004.
 * Profile isolation, Summit regressions, synth controls/presets, voice bounds/lifecycle, audio startup errors, and keyboard note cleanup have focused automated coverage.
+* Regression coverage verifies computer-keyboard piano note activation/release, Summit input isolation from Web Synth state, rotary controls, and ADSR graph/vertical-slider controls for both Web Synth envelopes.
 * The implementer runs `npm run test:run`, `npm run test:layout`, `npm run lint`, and `npm run build` successfully.
-* A browser listening check verifies audio begins after user interaction, edits respond smoothly, note release/panic stop voices, and MIDI unavailable/denied state does not disable audio.
+* Browser interaction verified audio startup after user interaction, parameter edits, keyboard note lifecycle, panic, and MIDI-denial independence. The user confirmed audible sound. Detailed subjective assessment of timbre and release quality was not recorded.
 * Verify the app works at the root path and under a non-root configured base path; no backend/network service is required.
 
 Details:
@@ -384,21 +416,22 @@ Dependencies:
 | D1 | Profile/audio boundary versus one shared MIDI/audio transport | Evidence-backed plan choice | Planner | MIDI encoding, Web Audio scheduling, and Summit SysEx/matrix behavior have different responsibilities; retain shared profile/parameter metadata and separate output paths. | Research Q1–Q3; C6–C10; W1–W4 | Drives P01 and P02 boundaries without a further user decision. |
 | D2 | Hosting and future platform services | Confirmed | User | No backend/identity/sharing requirements or service choice exists yet. | User direction; Research Q5; C12–C16 | Avoid hosting/vendor coupling in P01–P02. |
 | D3 | Profile IDs and patch-state exchange | Confirmed | User | Only Summit exists; virtual profile and cross-device sharing needs are not validated. | User direction; Research Q5; C7, C13–C16 | Include stable identity and plain serializable state; exclude persistence and interchange migrations. |
+| D4 | Web Synth control presentation | Confirmed | User | Web Synth controls should align with Summit: rotary encoders for continuous controls and the Summit ADSR graph with vertical sliders for envelope stages. | User direction on 2026-10-10 | Add FR-008 and update `P02-T03`/`P02-T04`; preserve discrete waveform selects and keyboard operation. |
 
 ## Planning Readiness and Next Step
 
 | Field | Record |
 |-------|--------|
-| Planning execution and readiness | Plan draft complete; not ready pending independent standard critique and final consistency checks. |
+| Planning execution and readiness | Bounded implementation of accepted review finding RV-003 in `P02-T02` is complete and validated. The `P02` phase marker remains unchecked because this invocation was task-bounded. Prior full-plan validation remains recorded; the current full-suite checks also pass. The original standard critique's single planner-owned finding remains resolved. |
 | Decision participation | User-owned; standalone RPI invocation. |
 | Blockers | None. |
-| Latest critique | `.copilot-tracking/reviews/plans/2026-10-09/multi-synth-patch-lab-plan-critique.md` not yet created. |
+| Latest critique | [.copilot-tracking/reviews/plans/2026-10-09/multi-synth-patch-lab-plan-critique.md](../../reviews/plans/2026-10-09/multi-synth-patch-lab-plan-critique.md), Revise; its single finding is resolved in this plan. |
 | Relevant research | `.copilot-tracking/research/2026-10-09/multi-synth-patch-lab-research.md` |
 | Plan | `.copilot-tracking/plans/2026-10-09/multi-synth-patch-lab-plan.md` |
 | Changes-record role | `.copilot-tracking/changes/2026-10-09/multi-synth-patch-lab-changes.md` will be implementation evidence; implementation phase owns its creation. |
 | Continuation owner | User (standalone RPI workflow). |
-| Required gates or confirmations | User-confirmed scope and platform-readiness boundaries are applied. |
-| Next action | Run the standard plan critique, resolve findings, and finalize readiness. |
+| Required gates or confirmations | Original scope boundaries remain applied; user-confirmed Web Synth control presentation and accepted review routes are implemented. |
+| Next action | Optional `/rpi-review` can reassess RV-003 against the updated implementation evidence. |
 
 ## Goals
 
@@ -411,7 +444,7 @@ Dependencies:
 ### In Scope
 
 * Summit profile extraction and behavior-preserving MIDI engine generalization.
-* Profile selection and profile-specific controls/state.
+* Profile selection and profile-specific controls/state, including Summit-style Web Synth control presentation.
 * Built-in Web Audio synth with eight-voice allocation, two oscillators per voice, low-pass filter, amp/filter envelopes, shared LFO, presets, and smoothed parameter updates.
 * Virtual keyboard and available Web MIDI input routed to the active performance output.
 * Profile/state/audio logic independent of GitHub Pages and future backend assumptions.
@@ -428,11 +461,12 @@ Dependencies:
 
 * FR-001: The application can select Summit or the built-in web synth using stable profile identifiers.
 * FR-002: Each active profile exposes its own parameter definitions, layout/capabilities, defaults, and serializable profile-specific parameter values; switching profiles does not overwrite the other profile's edits.
-* FR-003: Summit profile edits, input reflection, reset, virtual-keyboard MIDI, modulation matrix, and raw SysEx transfer retain their current behavior.
-* FR-004: The built-in web synth supports eight simultaneous voices, two selectable waveform oscillators per voice, detune, low-pass filter/cutoff/resonance/filter-envelope amount, amp and filter ADSR, and a shared pitch/filter LFO.
+* FR-003: Summit profile edits, input reflection, reset, virtual-keyboard MIDI, modulation matrix, and raw SysEx transfer retain their current behavior; Summit inbound parameter reflection is confined to Summit profile state.
+* FR-004: The built-in web synth supports eight simultaneous voices, two selectable waveform oscillators per voice, detune, low-pass filter/cutoff/resonance/filter-envelope amount, amp and filter ADSR, and a shared LFO with user-adjustable rate and independent pitch/filter modulation depths.
 * FR-005: The built-in synth starts/resumes audio only through a user interaction and reports audio readiness or errors independently from MIDI status.
 * FR-006: Virtual keyboard note start, release, cancellation, panic, and resize/collapse cleanup remain reliable for the active output; MIDI input notes reach the active output when Web MIDI is available.
 * FR-007: The built-in synth provides usable initial presets and parameter changes use smoothed AudioParam scheduling where appropriate.
+* FR-008: The Web Synth uses Summit-style rotary encoders for continuous controls and the Summit ADSR graph with vertical attack, decay, sustain, and release sliders for both amplifier and filter envelopes; discrete waveform choices remain selectors, and controls remain keyboard-operable.
 
 ## Non-Functional Requirements
 
@@ -473,13 +507,14 @@ Dependencies:
 ## Critique Disposition
 
 * Critique setting and provenance: Standard; default.
-* Critique status: Started; standard initial critique of the implementation-ready draft.
-* Latest critique and verdict: `.copilot-tracking/reviews/plans/2026-10-09/multi-synth-patch-lab-plan-critique.md` not yet created.
+* Critique status: Complete; the one planner-owned finding is resolved.
+* Latest critique and verdict: [.copilot-tracking/reviews/plans/2026-10-09/multi-synth-patch-lab-plan-critique.md](../../reviews/plans/2026-10-09/multi-synth-patch-lab-plan-critique.md), Revise.
 * Earlier critiques: None.
 * Limitations: None.
 
 | Critique run and finding | Disposition | Action owner | Exact resolving evidence | Decision route | Plan response or residual risk |
 |--------------------------|-------------|--------------|--------------------------|----------------|--------------------------------|
+| Initial PC-001 | Resolved | Planning parent | P02-T01 defines adjustable LFO rate and independent pitch/filter depths; P02-T02 requires both destinations. | Direct planner correction | Aligned the control and engine task requirements with FR-004 without prescribing engine choreography. |
 
 ## Artifact Self-Check
 
@@ -489,10 +524,10 @@ Dependencies:
 * [x] Every phase and task has the prescribed blocks; phase diagrams reuse the final After structure.
 * [x] Before and After diagrams show the evidenced baseline and intended result with accessible theme styling and stable node IDs.
 * [x] Risks and open questions name affected tasks and an owner; future platform work remains outside active phases.
-* [ ] Critique setting and result are recorded; readiness reflects critique.
+* [x] Standard critique ran on the implementation-ready plan; PC-001 is resolved and readiness reflects its result.
 * [x] Follow-up items remain outside active phases.
 * Checked sections: Executive Summary, Phase Checklist, decisions, goals, scope, requirements, phase/task blocks, diagrams, risks, dependencies, sources, follow-ups.
-* Missing or limited sections: Critique result and dual-theme rendered diagram verification.
+* Missing or limited sections: Dual-theme rendered diagram verification was unavailable; the diagrams use the prescribed theme-aware styling.
 
 ## Follow-Up Items
 
@@ -503,4 +538,4 @@ Dependencies:
 
 ## Handoff
 
-* Implementation handoff is ready only after standard critique findings are closed and the final readiness record is synchronized.
+* Implementation handoff: complete; the changes record is reconciled. Optional next step: `/rpi-review`.

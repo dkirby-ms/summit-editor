@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type ChangeEvent, type KeyboardEvent, type ReactNode } from 'react'
 import {
   Cable,
   ChevronDown,
@@ -21,10 +21,12 @@ import './App.css'
 import { midiEngine } from './midi/midiEngine'
 import { validateSysex } from './midi/sysex'
 import { useMidi } from './midi/useMidi'
+import { webAudioSynth, type AudioSnapshot } from './audio/webAudioSynth'
+import { webSynthParameters, webSynthPresets } from './model/webSynthProfile'
 import {
   getParameterValueLabel,
   summitParameters,
-  type ParameterDefinition,
+  type SummitParameterDefinition,
   type ParameterId,
 } from './model/parameters'
 import {
@@ -33,6 +35,7 @@ import {
   type ModMatrixField,
 } from './model/modMatrix'
 import { usePatchStore } from './model/patchStore'
+import { synthProfileById, synthProfiles } from './model/profiles'
 
 function ControlHelp({ label, text }: { label: string; text: string }) {
   const id = useId()
@@ -74,7 +77,7 @@ function UnavailableControls({ children }: { children: ReactNode }) {
   return <div className="unavailable-controls"><span>Not yet implemented</span><p>{children}</p></div>
 }
 
-const parameterList: readonly ParameterDefinition[] = summitParameters
+const parameterList: readonly SummitParameterDefinition[] = summitParameters
 
 function parametersInSection(section: string) {
   return parameterList.filter((parameter) => parameter.section === section)
@@ -83,7 +86,7 @@ function parametersInSection(section: string) {
 const mixerOrder: readonly string[] = ['osc1Mix', 'ringModMix', 'osc2Mix', 'noiseMix', 'osc3Mix', 'vcaLevel']
 const mixerParameters = parametersInSection('Mixer').sort((a, b) => mixerOrder.indexOf(a.id) - mixerOrder.indexOf(b.id))
 
-function ParameterGroup({ parameters, disabled }: { parameters: readonly ParameterDefinition[]; disabled?: (parameter: ParameterDefinition) => boolean }) {
+function ParameterGroup({ parameters, disabled }: { parameters: readonly SummitParameterDefinition[]; disabled?: (parameter: SummitParameterDefinition) => boolean }) {
   return <>{parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} disabled={disabled?.(parameter)} />)}</>
 }
 
@@ -91,7 +94,7 @@ const keyboardOctaves = 5
 const maxKeyboardOctave = Math.floor((127 - keyboardOctaves * 12) / 12) - 1
 const noteNames = ['C', 'C sharp', 'D', 'D sharp', 'E', 'F', 'F sharp', 'G', 'G sharp', 'A', 'A sharp', 'B']
 
-function ParameterControl({ parameter, disabled = false }: { parameter: ParameterDefinition; disabled?: boolean }) {
+function ParameterControl({ parameter, disabled = false }: { parameter: SummitParameterDefinition; disabled?: boolean }) {
   const value = usePatchStore((state) => state.values[parameter.id as ParameterId])
   const setValue = usePatchStore((state) => state.setValue)
 
@@ -141,6 +144,140 @@ function ParameterControl({ parameter, disabled = false }: { parameter: Paramete
         {parameter.address.type === 'cc' ? `CC ${parameter.address.controller}` : `NRPN ${parameter.address.msb}:${parameter.address.lsb}`}
       </span>
     </div>
+  )
+}
+
+type WebSynthParameter = (typeof webSynthParameters)[number]
+
+function WebSynthParameterControl({ parameter, vertical = false }: { parameter: WebSynthParameter; vertical?: boolean }) {
+  const value = usePatchStore((state) => state.values[parameter.id])
+  const setValue = usePatchStore((state) => state.setValue)
+
+  function update(nextValue: number) {
+    setValue(parameter.id, nextValue)
+  }
+
+  const valueLabels = 'valueLabels' in parameter ? parameter.valueLabels : undefined
+  const valueText = getWebSynthValueText(parameter, value)
+  return (
+    <div className="parameter-control web-synth-control" onDoubleClick={() => update(parameter.defaultValue)} onKeyDown={(event) => {
+      if (event.key !== 'Delete') return
+      event.preventDefault()
+      update(parameter.defaultValue)
+    }}>
+      <div className="parameter-heading">
+        <label htmlFor={valueLabels || vertical ? `web-${parameter.id}` : undefined}>{parameter.shortLabel}</label>
+        {(valueLabels || vertical) && <output>{valueText}</output>}
+      </div>
+      {valueLabels ? (
+        <select id={`web-${parameter.id}`} aria-label={parameter.label} value={value} onChange={(event) => update(Number(event.target.value))}>
+          {valueLabels.map((label, index) => <option key={label} value={index}>{label}</option>)}
+        </select>
+      ) : vertical ? (
+        <input id={`web-${parameter.id}`} type="range" min={parameter.min} max={parameter.max} value={value} aria-label={parameter.label} aria-orientation="vertical" aria-description="Use arrow keys to adjust. Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))} />
+      ) : (
+        <RotaryControl
+          id={`web-${parameter.id}`}
+          label={parameter.label}
+          min={parameter.min}
+          max={parameter.max}
+          value={value}
+          valueText={valueText}
+          center={'displayOffset' in parameter ? parameter.displayOffset : undefined}
+          onChange={update}
+        />
+      )}
+      {!valueLabels && !vertical && <output className="rotary-value">{valueText}</output>}
+    </div>
+  )
+}
+
+function getWebSynthValueText(parameter: WebSynthParameter, value: number) {
+  if ('valueLabels' in parameter) return parameter.valueLabels[value]
+  if (parameter.id === 'filterCutoff') return `${value} Hz`
+  if (parameter.id === 'osc1Detune' || parameter.id === 'osc2Detune' || parameter.id === 'lfoPitchDepth') return `${value} cents`
+  if (parameter.id === 'lfoRate') return `${value} Hz`
+  if (parameter.id.endsWith('Sustain') || parameter.id === 'filterResonance' || parameter.id === 'filterEnvelopeAmount' || parameter.id === 'lfoFilterDepth') return `${value}%`
+  if (parameter.id.endsWith('Attack') || parameter.id.endsWith('Decay') || parameter.id.endsWith('Release')) return `${value} ms`
+  return String(value)
+}
+
+function WebSynthEnvelope({ section, values }: { section: 'Amp envelope' | 'Filter envelope'; values: Record<string, number> }) {
+  const prefix = section === 'Amp envelope' ? 'amp' : 'filter'
+  const parameters = webSynthParameters.filter((parameter) => parameter.section === section)
+  const value = (stage: 'Attack' | 'Decay' | 'Sustain' | 'Release') => values[`${prefix}${stage}`]
+  const max = (stage: 'Attack' | 'Decay' | 'Sustain' | 'Release') => parameters.find((parameter) => parameter.id === `${prefix}${stage}`)?.max ?? 127
+
+  return (
+    <>
+      <div className="envelope-controls">
+        {parameters.map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} vertical />)}
+      </div>
+      <EnvelopeGraph
+        id={`web-${prefix}-graph`}
+        title={`${section === 'Amp envelope' ? 'Amplifier' : 'Filter'} envelope curve`}
+        attack={value('Attack')}
+        decay={value('Decay')}
+        sustain={value('Sustain')}
+        release={value('Release')}
+        attackMax={max('Attack')}
+        decayMax={max('Decay')}
+        sustainMax={max('Sustain')}
+        releaseMax={max('Release')}
+      />
+    </>
+  )
+}
+
+function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
+  const values = usePatchStore((state) => state.values)
+  const applyProfileValues = usePatchStore((state) => state.applyProfileValues)
+  const selectedPreset = webSynthPresets.find((preset) => webSynthParameters.every((parameter) => values[parameter.id] === preset.values[parameter.id]))?.id ?? ''
+
+  useEffect(() => {
+    webAudioSynth.setParameters(values)
+  }, [values])
+
+  function selectPreset(id: string) {
+    const preset = webSynthPresets.find((item) => item.id === id)
+    if (preset) applyProfileValues('web-synth', preset.values)
+  }
+
+  return (
+    <section className="panel-workspace web-synth-panel" aria-label="Built-in Web Synth">
+      <div className="web-synth-heading">
+        <div>
+          <span className="eyebrow">Independent browser instrument</span>
+          <h2>Built-in Web Synth</h2>
+          <p>Shape a two-oscillator synth and play without connected hardware.</p>
+        </div>
+        <div className="web-synth-actions">
+          <label><span>Preset</span><select aria-label="Web synth preset" value={selectedPreset} onChange={(event) => selectPreset(event.target.value)}>
+            <option value="">Custom</option>
+            {webSynthPresets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
+          </select></label>
+          <button type="button" className="primary-action" onClick={() => { void webAudioSynth.start() }} disabled={audio.status === 'starting'}>
+            <Power aria-hidden="true" />{audio.status === 'ready' ? 'Resume audio' : audio.status === 'starting' ? 'Starting...' : 'Start audio'}
+          </button>
+        </div>
+      </div>
+      <p className={`audio-status audio-status-${audio.status}`} role="status" aria-live="polite">
+        <strong>Audio {audio.status}.</strong>{audio.error ? ` ${audio.error}` : audio.status === 'ready' ? ' Audio output is independent of MIDI.' : ' Start audio to enable the virtual keyboard.'}
+      </p>
+      <div className="web-synth-grid">
+        {[...new Set(webSynthParameters.map((parameter) => parameter.section))].map((section) => (
+          <PanelModule key={section} id={`web-${section.toLowerCase().replaceAll(' ', '-')}`} title={section} className="web-synth-module">
+            {section === 'Amp envelope' || section === 'Filter envelope'
+              ? <WebSynthEnvelope section={section} values={values} />
+              : <div className="web-synth-controls">
+                {webSynthParameters.filter((parameter) => parameter.section === section).map((parameter) => (
+                  <WebSynthParameterControl key={parameter.id} parameter={parameter} />
+                ))}
+              </div>}
+          </PanelModule>
+        ))}
+      </div>
+    </section>
   )
 }
 
@@ -244,18 +381,22 @@ function RotaryControl({
   )
 }
 
-function EnvelopeGraph({ id, title, attack, decay, sustain, release }: {
+function EnvelopeGraph({ id, title, attack, decay, sustain, release, attackMax = 127, decayMax = 127, sustainMax = 127, releaseMax = 127 }: {
   id: string
   title: string
   attack: number
   decay: number
   sustain: number
   release: number
+  attackMax?: number
+  decayMax?: number
+  sustainMax?: number
+  releaseMax?: number
 }) {
-  const attackX = 30 + (attack / 127) * 80
-  const decayX = attackX + 30 + (decay / 127) * 70
-  const sustainY = 156 - (sustain / 127) * 116
-  const releaseX = 270 + (release / 127) * 80
+  const attackX = 30 + (attack / attackMax) * 80
+  const decayX = attackX + 30 + (decay / decayMax) * 70
+  const sustainY = 156 - (sustain / sustainMax) * 116
+  const releaseX = 270 + (release / releaseMax) * 80
   const path = `M 24 156 L ${attackX} 40 L ${decayX} ${sustainY} L 270 ${sustainY} L ${releaseX} 156`
 
   return (
@@ -322,7 +463,7 @@ function ModEnvelopeModule() {
 
 function ModMatrixModule() {
   const [selectedSlot, setSelectedSlot] = useState(0)
-  const slots = usePatchStore((state) => state.modMatrix)
+  const slots = usePatchStore((state) => state.summitState.modMatrix)
   const setModMatrixValue = usePatchStore((state) => state.setModMatrixValue)
   const slot = slots[selectedSlot]
   const number = selectedSlot + 1
@@ -410,7 +551,7 @@ function LfoModule() {
   const range = usePatchStore((state) => (selectedLfo === 1 ? state.values.lfo1Range : selectedLfo === 2 ? state.values.lfo2Range : null))
   const isSynced = range === LFO_RANGE_SYNC
 
-  function isDisabled(parameter: ParameterDefinition) {
+  function isDisabled(parameter: SummitParameterDefinition) {
     if (parameter.id.endsWith('SyncRate')) return !isSynced
     if (parameter.id.endsWith('Rate')) return isSynced
     return false
@@ -444,7 +585,7 @@ const DUAL_FILTER_SHAPE = 3
 
 function FilterModule() {
   const isDual = usePatchStore((state) => state.values.filterShape === DUAL_FILTER_SHAPE)
-  const filterParameters: ParameterDefinition[] = summitParameters.filter((parameter) => parameter.section === 'Filter')
+  const filterParameters: SummitParameterDefinition[] = summitParameters.filter((parameter) => parameter.section === 'Filter')
   const featured = filterParameters.filter((parameter) => parameter.prominent)
   const others = filterParameters.filter((parameter) => !parameter.prominent)
 
@@ -521,13 +662,45 @@ function MenuSettingsModule() {
   )
 }
 
-function VirtualKeyboard({ enabled }: { enabled: boolean }) {
+type PerformanceOutput = {
+  enabled: boolean
+  readyMessage: string
+  onNoteOn: (note: number, velocity: number) => boolean
+  onNoteOff: (note: number) => boolean
+  allNotesOff: () => void
+}
+
+function sendPerformanceNoteOn(profileId: string, note: number, velocity: number) {
+  return profileId === 'web-synth'
+    ? webAudioSynth.noteOn(note, velocity)
+    : midiEngine.sendNoteOn(note, velocity)
+}
+
+function sendPerformanceNoteOff(profileId: string, note: number) {
+  return profileId === 'web-synth'
+    ? webAudioSynth.noteOff(note)
+    : midiEngine.sendNoteOff(note)
+}
+
+function releasePerformanceNotes(profileId: string) {
+  if (profileId === 'web-synth') webAudioSynth.allNotesOff()
+  else midiEngine.allNotesOff()
+}
+
+function requireSynthProfile(id: typeof synthProfiles[number]['id']) {
+  const profile = synthProfileById.get(id)
+  if (!profile) throw new Error(`Unknown active synth profile: ${id}`)
+  return profile
+}
+
+function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
   const keybedRef = useRef<HTMLDivElement>(null)
   const [visibleOctaves, setVisibleOctaves] = useState(keyboardOctaves)
   const [expanded, setExpanded] = useState(true)
   const [octave, setOctave] = useState(2)
   const [velocity, setVelocity] = useState(100)
   const [activeNotes, setActiveNotes] = useState<Set<number>>(() => new Set())
+  const keyboardHeldNotes = useRef<Set<number>>(new Set())
   const baseNote = (octave + 1) * 12
   const whiteKeys = [
     ...Array.from({ length: visibleOctaves }, (_, index) => [0, 2, 4, 5, 7, 9, 11].map((offset) => index * 12 + offset)).flat(),
@@ -540,7 +713,7 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
     })),
   ).flat()
 
-  useEffect(() => () => { midiEngine.allNotesOff() }, [])
+  useEffect(() => () => output.allNotesOff(), [output])
   useEffect(() => {
     const keybed = keybedRef.current
     if (!keybed || typeof ResizeObserver === 'undefined') return
@@ -551,13 +724,13 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
       const nextOctaves = Math.max(1, Math.min(keyboardOctaves, Math.floor((entry.contentRect.width * 0.7 / 24 - 1) / 7)))
       if (nextOctaves === previousOctaves) return
       previousOctaves = nextOctaves
-      midiEngine.allNotesOff()
+      output.allNotesOff()
       setActiveNotes(new Set())
       setVisibleOctaves(nextOctaves)
     })
     observer.observe(keybed)
     return () => observer.disconnect()
-  }, [])
+  }, [output])
 
   function noteLabel(offset: number) {
     const midiNote = baseNote + offset
@@ -567,14 +740,15 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
   }
 
   function playNote(note: number) {
-    if (!enabled || activeNotes.has(note)) return
-    midiEngine.sendNoteOn(note, velocity)
+    if (!output.enabled || activeNotes.has(note)) return false
+    if (!output.onNoteOn(note, velocity)) return false
     setActiveNotes((current) => new Set(current).add(note))
+    return true
   }
 
   function releaseNote(note: number) {
-    if (!enabled) return
-    midiEngine.sendNoteOff(note)
+    if (!activeNotes.has(note)) return
+    output.onNoteOff(note)
     setActiveNotes((current) => {
       const next = new Set(current)
       next.delete(note)
@@ -583,13 +757,15 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
   }
 
   function changeOctave(nextOctave: number) {
-    midiEngine.allNotesOff()
+    output.allNotesOff()
+    keyboardHeldNotes.current.clear()
     setActiveNotes(new Set())
     setOctave(nextOctave)
   }
 
   function stopAllNotes() {
-    midiEngine.allNotesOff()
+    output.allNotesOff()
+    keyboardHeldNotes.current.clear()
     setActiveNotes(new Set())
   }
 
@@ -603,7 +779,7 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
         style={position === undefined ? undefined : { left: `${position}%`, width: `${70 / whiteKeys.length}%` }}
         aria-label={`Play ${noteLabel(offset)}`}
         aria-pressed={activeNotes.has(note)}
-        disabled={!enabled}
+        disabled={!output.enabled}
         onPointerDown={(event) => {
           event.preventDefault()
           event.currentTarget.setPointerCapture(event.pointerId)
@@ -611,6 +787,22 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
         }}
         onPointerUp={() => releaseNote(note)}
         onPointerCancel={() => releaseNote(note)}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          if (keyboardHeldNotes.current.has(note)) return
+          if (playNote(note)) keyboardHeldNotes.current.add(note)
+        }}
+        onKeyUp={(event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return
+          event.preventDefault()
+          if (!keyboardHeldNotes.current.delete(note)) return
+          releaseNote(note)
+        }}
+        onBlur={() => {
+          if (!keyboardHeldNotes.current.delete(note)) return
+          releaseNote(note)
+        }}
       >
         {kind === 'white' && offset % 12 === 0 ? <span>{noteLabel(offset).replace(' ', '')}</span> : null}
       </button>
@@ -635,11 +827,11 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
               <button type="button" onClick={() => changeOctave(octave + 1)} disabled={octave >= maxKeyboardOctave} aria-label="Increase octave"><Plus aria-hidden="true" /></button>
             </div>
             <label className="velocity-control"><span>Velocity</span><input type="range" min="1" max="127" value={velocity} onChange={(event) => setVelocity(Number(event.target.value))} /><output>{velocity}</output></label>
-            <button className="panic-button" type="button" onClick={stopAllNotes} disabled={!enabled}>All notes off</button>
+            <button className="panic-button" type="button" onClick={stopAllNotes} disabled={!output.enabled}>All notes off</button>
           </div>
         </div>
         <div id="keyboard-content" hidden={!expanded}>
-          <p className="keyboard-status" role="status">{enabled ? 'Ready on selected MIDI output.' : 'Select a MIDI output to play.'}</p>
+          <p className="keyboard-status" role="status">{output.readyMessage}</p>
           <div className="keyboard-keybed" role="group" aria-label="Piano keyboard">
             <div className="piano-bed" ref={keybedRef}>
               <div className="white-keys">{whiteKeys.map((offset) => keyButton(offset, 'white'))}</div>
@@ -655,12 +847,49 @@ function VirtualKeyboard({ enabled }: { enabled: boolean }) {
 function App() {
   const [debug, setDebug] = useState(false)
   const midi = useMidi()
-  const rawPatch = usePatchStore((state) => state.rawPatch)
-  const rawPatchSource = usePatchStore((state) => state.rawPatchSource)
+  const activeProfileId = usePatchStore((state) => state.activeProfileId)
+  const setActiveProfile = usePatchStore((state) => state.setActiveProfile)
+  const audio = useSyncExternalStore(webAudioSynth.subscribe, webAudioSynth.getSnapshot)
+  const activeProfile = requireSynthProfile(activeProfileId)
+  const inputHeldNotes = useRef<number[]>([])
+  const keyboardOutput = useMemo<PerformanceOutput>(() => ({
+    enabled: activeProfileId === 'web-synth' ? audio.status === 'ready' : Boolean(midi.selectedOutputId),
+    readyMessage: activeProfileId === 'web-synth'
+      ? audio.status === 'ready' ? 'Ready on built-in audio output.' : 'Start audio to enable the virtual keyboard.'
+      : midi.selectedOutputId ? 'Ready on selected MIDI output.' : 'Select a MIDI output to play.',
+    onNoteOn: (note, velocity) => sendPerformanceNoteOn(activeProfileId, note, velocity),
+    onNoteOff: (note) => sendPerformanceNoteOff(activeProfileId, note),
+    allNotesOff: () => releasePerformanceNotes(activeProfileId),
+  }), [activeProfileId, audio.status, midi.selectedOutputId])
+  const rawPatch = usePatchStore((state) => state.summitState.rawPatch)
+  const rawPatchSource = usePatchStore((state) => state.summitState.rawPatchSource)
   const setRawPatch = usePatchStore((state) => state.setRawPatch)
   const resetValues = usePatchStore((state) => state.resetValues)
   const fileInput = useRef<HTMLInputElement>(null)
   const [fileMessage, setFileMessage] = useState('No patch captured or imported.')
+
+  useEffect(() => {
+    inputHeldNotes.current = []
+    const releaseInputNotes = () => {
+      inputHeldNotes.current.splice(0).forEach((note) => sendPerformanceNoteOff(activeProfileId, note))
+    }
+    const unsubscribe = midiEngine.subscribeToInputNotes((event) => {
+      if (event.type === 'allNotesOff') {
+        releaseInputNotes()
+      } else if (event.type === 'noteOn') {
+        if (sendPerformanceNoteOn(activeProfileId, event.note, event.velocity)) inputHeldNotes.current.push(event.note)
+      } else {
+        const heldIndex = inputHeldNotes.current.lastIndexOf(event.note)
+        if (heldIndex < 0) return
+        inputHeldNotes.current.splice(heldIndex, 1)
+        sendPerformanceNoteOff(activeProfileId, event.note)
+      }
+    })
+    return () => {
+      releaseInputNotes()
+      unsubscribe()
+    }
+  }, [activeProfileId])
 
   async function importPatch(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -691,7 +920,7 @@ function App() {
 
   function resetPatch() {
     resetValues()
-    const sent = midiEngine.resetHardwareToDefaults()
+    const sent = activeProfile.capabilities.midiOutput && midiEngine.resetHardwareToDefaults()
     setFileMessage(sent ? 'Defaults restored locally and sent to Summit.' : 'Defaults restored locally.')
   }
 
@@ -702,28 +931,33 @@ function App() {
           <div className="brand-mark"><SlidersHorizontal aria-hidden="true" /></div>
           <div><p>NOVATION</p><h1>SUMMIT <span>PATCH LAB</span></h1></div>
         </div>
-        <div className="patch-identity"><strong>PEAK-STYLE / SINGLE PART</strong></div>
+        <div className="patch-identity">
+          <label><span>Synth profile</span><select aria-label="Synth profile" value={activeProfileId} onChange={(event) => setActiveProfile(event.target.value as typeof activeProfileId)}>
+            {synthProfiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+          </select></label>
+          <strong>PEAK-STYLE / SINGLE PART</strong>
+        </div>
       </header>
 
-      <section className="connection-strip" aria-labelledby="connection-title">
+      {(activeProfile.capabilities.midiInput || activeProfile.capabilities.midiOutput) && <section className="connection-strip" aria-labelledby="connection-title">
         <div className="connection-status">
           <span className={`status-light status-${midi.status}`} aria-hidden="true" />
-          <div><span className="eyebrow" id="connection-title">Hardware link</span><strong>{midi.status === 'ready' ? 'MIDI ready' : midi.status === 'unsupported' ? 'Offline editor' : midi.status}</strong></div>
+          <div><span className="eyebrow" id="connection-title">{activeProfile.capabilities.midiOutput ? 'Hardware link' : 'Optional MIDI input'}</span><strong>{midi.status === 'ready' ? 'MIDI ready' : midi.status === 'unsupported' ? 'Offline editor' : midi.status}</strong></div>
         </div>
         <button className="primary-action" type="button" onClick={() => midiEngine.connect()} disabled={midi.status === 'unsupported' || midi.status === 'requesting'}>
           <Power aria-hidden="true" />{midi.status === 'requesting' ? 'Requesting...' : 'Connect MIDI'}
         </button>
         <label><span>Input</span><select value={midi.selectedInputId} onChange={(event) => midiEngine.selectInput(event.target.value)} disabled={midi.status !== 'ready'}><option value="">No input</option>{midi.inputs.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>
-        <label><span>Output</span><select value={midi.selectedOutputId} onChange={(event) => midiEngine.selectOutput(event.target.value)} disabled={midi.status !== 'ready'}><option value="">No output</option>{midi.outputs.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>
+        {activeProfile.capabilities.midiOutput && <label><span>Output</span><select value={midi.selectedOutputId} onChange={(event) => midiEngine.selectOutput(event.target.value)} disabled={midi.status !== 'ready'}><option value="">No output</option>{midi.outputs.map((port) => <option key={port.id} value={port.id}>{port.name}</option>)}</select></label>}
         <label className="channel-select"><span>Channel</span><select value={midi.channel} onChange={(event) => midiEngine.setChannel(Number(event.target.value))}>{Array.from({ length: 16 }, (_, index) => <option key={index + 1}>{index + 1}</option>)}</select></label>
         <button className="icon-button" type="button" onClick={() => midiEngine.refreshPorts()} title="Refresh MIDI ports" aria-label="Refresh MIDI ports" disabled={midi.status !== 'ready'}><RefreshCw aria-hidden="true" /></button>
         <p className="status-message" role="status" aria-live="polite">{midi.error ?? midi.activity}</p>
-      </section>
+      </section>}
 
       <main>
-        <div className="panel-workspace">
+        {activeProfile.id === 'summit' ? <div className="panel-workspace">
           <div className="panel-intro">
-            <div><span className="eyebrow">SUMMIT sound engine</span></div>
+            <div><span className="eyebrow">{activeProfile.name} sound engine</span></div>
             <p>Editing uses the selected MIDI channel. Independent A/B layer editing is not yet implemented.</p>
           </div>
           <div className="peak-panel" aria-label="PEAK-style synth panel">
@@ -785,14 +1019,15 @@ function App() {
             <MenuSettingsModule />
             <div className="panel-caption"><Waves aria-hidden="true" /><span>PEAK-inspired layout / SUMMIT MIDI</span><span>Documented controls only</span></div>
           </div>
-        </div>
+        </div> : <WebSynthPanel audio={audio} />}
       </main>
 
-      <VirtualKeyboard enabled={Boolean(midi.selectedOutputId)} />
+      {(activeProfile.capabilities.audioOutput || activeProfile.capabilities.midiOutput) && <VirtualKeyboard key={`${activeProfileId}:${activeProfileId === 'web-synth' ? audio.status : midi.selectedOutputId}`} output={keyboardOutput} />}
 
       <footer className="app-footer">
-        <div><Cable aria-hidden="true" /><span>Web MIDI / SysEx</span></div>
-        <p>Best in current Chrome, Edge, or Firefox on desktop. HTTPS or localhost required.</p>
+        {activeProfile.capabilities.midiOutput && <div><Cable aria-hidden="true" /><span>Web MIDI / SysEx</span></div>}
+        {activeProfile.capabilities.audioOutput && <div><Waves aria-hidden="true" /><span>Web Audio / optional MIDI input</span></div>}
+        <p>Best in current Chrome, Edge, or Firefox on desktop. Web MIDI requires HTTPS or localhost; built-in audio does not require MIDI.</p>
         <div className="footer-actions">
           <button type="button" aria-pressed={debug} onClick={() => setDebug((current) => !current)} title="Show CC and NRPN addresses">Debug</button>
           <button type="button" onClick={resetPatch}><RotateCcw aria-hidden="true" /> Reset defaults</button>
