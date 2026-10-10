@@ -9,9 +9,9 @@
 
 ## Executive Summary
 
-* Bottom line: Planning in progress for a two-phase foundation: profile-based Summit compatibility first, followed by a built-in Web Audio synthesizer. Keep hosting flexible and state serializable without adding platform services or freezing a patch-sharing format.
+* Bottom line: Plan a two-phase foundation: profile-based Summit compatibility first, followed by a built-in Web Audio synthesizer. Keep hosting flexible and state serializable without adding platform services or freezing a patch-sharing format.
 * Why this matters: This preserves existing hardware editing while establishing a no-hardware instrument and a profile boundary that can evolve into tutorials and patch sharing later.
-* Planning result: In progress; the supplied research establishes technical feasibility and scope, and the task breakdown, diagrams, and independent critique remain.
+* Planning result: The phase/task plan is drafted from completed research. Readiness awaits an independent standard critique and final consistency checks.
 * Confidence and uncertainty: High confidence in existing code boundaries and validation surfaces; audio behavior and scope need browser listening checks, while future identity, cloud, sharing, and gamification remain out of this foundation.
 
 ### What You May Not Know
@@ -46,28 +46,30 @@ flowchart LR
 ```mermaid
 %%{init: {"themeVariables": {"fontFamily": "Arial, Helvetica, sans-serif", "fontSize": "16px"}}}%%
 flowchart LR
-    ui["src/App.tsx: active-profile UI"]
-    registry["Added: stable synth profile registry"]
+    app["src/App.tsx: active-profile UI"]
+    profile["Added: stable synth profile registry"]
     store["src/model/patchStore.ts: profile-keyed serializable state"]
     summit["Added: Summit profile and MIDI adapter"]
     midi["src/midi/midiEngine.ts: Web MIDI and Summit transport"]
     audio["Added: built-in Web Audio synth"]
     keyboard["Virtual keyboard and optional MIDI input"]
-    tests["Added: profile, audio-logic, and integration tests"]
-    ui -->|selects and renders| registry
-    ui -->|reads and updates| store
-    registry -->|describes| summit
-    registry -->|describes| audio
+    profileTests["Added: profile and Summit regression tests"]
+    audioTests["Added: audio and integration tests"]
+    app -->|selects and renders| profile
+    app -->|reads and updates| store
+    profile -->|describes| summit
+    profile -->|describes| audio
     summit -->|owns| midi
-    store -->|isolates values by profile ID| registry
+    store -->|isolates values by profile ID| profile
     keyboard -->|plays through active output| midi
     keyboard -->|plays through active output| audio
-    tests -->|protect| ui
-    tests -->|protect| store
-    tests -->|protect| midi
-    tests -->|protect| audio
+    profileTests -->|protect| app
+    profileTests -->|protect| store
+    profileTests -->|protect| midi
+    audioTests -->|protect| audio
+    audioTests -->|protect| app
     classDef new stroke-dasharray: 5 5
-    class registry,summit,audio,tests new
+    class profile,summit,audio,profileTests,audioTests new
 ```
 
 The Summit editor remains available through an explicit profile, while a profile-keyed state boundary and a separate browser-audio output path enable the built-in synth. MIDI availability remains optional for audio playback.
@@ -84,30 +86,36 @@ Dependencies:
 ```mermaid
 %%{init: {"themeVariables": {"fontFamily": "Arial, Helvetica, sans-serif", "fontSize": "16px"}}}%%
 flowchart LR
-    ui["src/App.tsx: active-profile UI"]
-    registry["Added: stable synth profile registry"]
+    app["src/App.tsx: active-profile UI"]
+    profile["Added: stable synth profile registry"]
     store["src/model/patchStore.ts: profile-keyed serializable state"]
     summit["Added: Summit profile and MIDI adapter"]
     midi["src/midi/midiEngine.ts: Web MIDI and Summit transport"]
     audio["Added: built-in Web Audio synth"]
     keyboard["Virtual keyboard and optional MIDI input"]
-    tests["Added: profile, audio-logic, and integration tests"]
-    ui -->|selects and renders| registry
-    ui -->|reads and updates| store
-    registry -->|describes| summit
-    registry -->|describes| audio
+    profileTests["Added: profile and Summit regression tests"]
+    audioTests["Added: audio and integration tests"]
+    app -->|selects and renders| profile
+    app -->|reads and updates| store
+    profile -->|describes| summit
+    profile -->|describes| audio
     summit -->|owns| midi
-    store -->|isolates values by profile ID| registry
+    store -->|isolates values by profile ID| profile
     keyboard -->|plays through active output| midi
     keyboard -->|plays through active output| audio
-    tests -->|protect| ui
-    tests -->|protect| store
-    tests -->|protect| midi
-    tests -->|protect| audio
+    profileTests -->|protect| app
+    profileTests -->|protect| store
+    profileTests -->|protect| midi
+    audioTests -->|protect| audio
+    audioTests -->|protect| app
     classDef new stroke-dasharray: 5 5
-    class registry,summit,audio,tests new
+    class profile,summit,audio,profileTests,audioTests new
     classDef phase fill:#fff3bf,color:#1f2328,stroke:#9a6700,stroke-width:2px
-    class ui,registry,store,summit,midi,keyboard,tests phase
+    params["Removed in P01: Summit-only parameter list"]
+    params -.->|replaced by profile definitions| profile
+    classDef removed stroke-dasharray: 5 5
+    class params removed
+    class app,profile,store,summit,midi,keyboard,profileTests,params phase
 ```
 
 Highlighted work: replace implicit Summit coupling in the UI, profile metadata, patch state, and hardware MIDI boundary. The built-in synth remains a later phase.
