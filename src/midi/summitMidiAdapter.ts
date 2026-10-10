@@ -1,9 +1,7 @@
 import { decodeCcMessage, encodeParameter } from './codec'
 import { SUMMIT_EDIT_BUFFER_REQUEST, validateSysex } from './sysex'
 import {
-  parameterById,
   summitParameters,
-  type ParameterId,
   type SummitParameterDefinition,
 } from '../model/parameters'
 import { usePatchStore } from '../model/patchStore'
@@ -39,8 +37,8 @@ export class SummitMidiAdapter {
     this.inboundModMatrixSlot = null
   }
 
-  sendParameter(id: ParameterId, value: number) {
-    const parameter = parameterById.get(id)
+  sendParameter(id: string, value: number) {
+    const parameter = summitParameters.find((candidate) => candidate.id === id)
     if (!parameter) return false
     const messages = encodeParameter(this.getChannel(), parameter, value)
     if (!messages.every((message) => this.sendMessage(message))) return false
@@ -60,7 +58,7 @@ export class SummitMidiAdapter {
     if (!this.hasOutput()) return false
     summitParameters.forEach((parameter: SummitParameterDefinition) => {
       if (!parameter.unverifiedEncoding) {
-        this.sendParameter(parameter.id as ParameterId, parameter.defaultValue)
+        this.sendParameter(parameter.id, parameter.defaultValue)
       }
     })
     usePatchStore.getState().summitState.modMatrix.forEach((slot, slotIndex) => {

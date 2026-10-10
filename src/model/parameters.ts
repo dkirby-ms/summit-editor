@@ -40,9 +40,12 @@ export type ParameterDefinition = {
   prominent?: boolean
 }
 
-export type SummitParameterDefinition = ParameterDefinition & {
-  section: ParameterSection
+export type HardwareParameterDefinition = ParameterDefinition & {
   address: CcAddress | NrpnAddress
+}
+
+export type SummitParameterDefinition = HardwareParameterDefinition & {
+  section: ParameterSection
   /** Value encoding is not hardware-verified, so reset-to-defaults does not transmit it. */
   unverifiedEncoding?: boolean
 }

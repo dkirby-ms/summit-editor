@@ -28,7 +28,7 @@ import {
   getParameterValueLabel,
   summitParameters,
   type SummitParameterDefinition,
-  type ParameterId,
+  type HardwareParameterDefinition,
 } from './model/parameters'
 import {
   modMatrixDestinations,
@@ -37,7 +37,9 @@ import {
 } from './model/modMatrix'
 import { usePatchStore } from './model/patchStore'
 import { synthProfileById, synthProfiles } from './model/profiles'
-import { subtractiveLessons, tutorialInitialValues, tutorialParameters } from './model/subtractiveTutorial'
+import { ultranovaParameters } from './model/ultranovaProfile'
+import { subtractiveLessons, tutorialDismissedStorageKey, tutorialInitialValues, tutorialParameters, tutorialSaveLesson } from './model/subtractiveTutorial'
+import { TutorialExplainer } from './TutorialExplainer'
 import { readWebSynthPresets, saveWebSynthPreset } from './model/webSynthPresetStorage'
 
 function ControlHelp({ label, text }: { label: string; text: string }) {
@@ -89,7 +91,7 @@ function parametersInSection(section: string) {
 const mixerOrder: readonly string[] = ['osc1Mix', 'ringModMix', 'osc2Mix', 'noiseMix', 'osc3Mix', 'vcaLevel']
 const mixerParameters = parametersInSection('Mixer').sort((a, b) => mixerOrder.indexOf(a.id) - mixerOrder.indexOf(b.id))
 
-function ParameterGroup({ parameters, disabled }: { parameters: readonly SummitParameterDefinition[]; disabled?: (parameter: SummitParameterDefinition) => boolean }) {
+function ParameterGroup({ parameters, disabled }: { parameters: readonly HardwareParameterDefinition[]; disabled?: (parameter: HardwareParameterDefinition) => boolean }) {
   return <>{parameters.map((parameter) => <ParameterControl key={parameter.id} parameter={parameter} disabled={disabled?.(parameter)} />)}</>
 }
 
@@ -97,13 +99,14 @@ const keyboardOctaves = 5
 const maxKeyboardOctave = Math.floor((127 - keyboardOctaves * 12) / 12) - 1
 const noteNames = ['C', 'C sharp', 'D', 'D sharp', 'E', 'F', 'F sharp', 'G', 'G sharp', 'A', 'A sharp', 'B']
 
-function ParameterControl({ parameter, disabled = false }: { parameter: SummitParameterDefinition; disabled?: boolean }) {
-  const value = usePatchStore((state) => state.values[parameter.id as ParameterId])
+function ParameterControl({ parameter, disabled = false }: { parameter: HardwareParameterDefinition; disabled?: boolean }) {
+  const value = usePatchStore((state) => state.values[parameter.id])
+  const effectValues = usePatchStore((state) => state.activeProfileId === 'ultranova' && /^fx[1-5]Type$/.test(parameter.id) ? state.values : null)
   const setValue = usePatchStore((state) => state.setValue)
 
   function update(nextValue: number) {
     if (disabled) return
-    const id = parameter.id as ParameterId
+    const id = parameter.id
     setValue(id, nextValue)
     midiEngine.sendParameter(id, nextValue)
   }
@@ -124,7 +127,12 @@ function ParameterControl({ parameter, disabled = false }: { parameter: SummitPa
       </div>
       {parameter.valueLabels ? (
         <select id={parameter.id} value={value} disabled={disabled} aria-description="Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))}>
-          {parameter.valueLabels.map((label, index) => <option key={index} value={parameter.min + index}>{label}</option>)}
+          {parameter.valueLabels.map((label, index) => {
+            const optionValue = parameter.min + index
+            const usedInAnotherSlot = effectValues !== null && optionValue !== 0
+              && [1, 2, 3, 4, 5].some((slot) => `fx${slot}Type` !== parameter.id && effectValues[`fx${slot}Type`] === optionValue)
+            return <option key={index} value={optionValue} disabled={usedInAnotherSlot}>{label}</option>
+          })}
         </select>
       ) : parameter.fader ? (
         <input id={parameter.id} type="range" min={parameter.min} max={parameter.max} value={value} disabled={disabled} aria-label={parameter.label} aria-orientation="vertical" aria-description="Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))} />
@@ -159,6 +167,78 @@ const waveformShapes = [
   'M 2 29 V 3 H 14 V 29 H 26 V 3 H 38 V 29 H 50',
 ]
 
+/** Commits whole-number parameter values on Enter or blur; Escape cancels an edit. */
+function WebSynthNumberInput({ parameter, value, valueText, onChange }: {
+  parameter: WebSynthParameter
+  value: number
+  valueText: string
+  onChange: (value: number) => void
+}) {
+  const [draft, setDraft] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const id = useId()
+  const valueButton = useRef<HTMLButtonElement>(null)
+  const editInput = useRef<HTMLInputElement>(null)
+  const editing = draft !== null
+
+  useEffect(() => {
+    if (editing) {
+      editInput.current?.focus()
+      editInput.current?.select()
+    }
+  }, [editing])
+
+  function commit(input: HTMLInputElement, returnFocus = false) {
+    if (draft === null) return
+    const next = input.valueAsNumber
+    if (!draft.trim() || !Number.isInteger(next) || next < parameter.min || next > parameter.max) {
+      setError(`Enter a whole number from ${parameter.min} to ${parameter.max}.`)
+      return
+    }
+    onChange(next)
+    setDraft(null)
+    setError('')
+    if (returnFocus) requestAnimationFrame(() => valueButton.current?.focus())
+  }
+
+  return (
+    <div className="web-number-control" onDoubleClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+      {draft === null ? <button
+        ref={valueButton}
+        type="button"
+        className="web-editable-value"
+        aria-label={`Edit ${parameter.label.toLowerCase()} value: ${valueText}`}
+        onClick={() => setDraft(String(value))}
+      >{valueText}</button> : <input
+        ref={editInput}
+        type="number"
+        min={parameter.min}
+        max={parameter.max}
+        step={1}
+        value={draft ?? value}
+        aria-label={`${parameter.label} value`}
+        aria-description={`Current setting: ${valueText}. Enter a whole number from ${parameter.min} to ${parameter.max}. Press Enter to apply or Escape to cancel.`}
+        aria-invalid={Boolean(error)}
+        aria-describedby={error ? id : undefined}
+        onChange={(event) => { setDraft(event.target.value); setError('') }}
+        onBlur={(event) => commit(event.currentTarget)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            commit(event.currentTarget, true)
+          } else if (event.key === 'Escape') {
+            event.preventDefault()
+            setDraft(null)
+            setError('')
+            requestAnimationFrame(() => valueButton.current?.focus())
+          }
+        }}
+      />}
+      {error && <span id={id} className="web-number-error" role="alert">{error}</span>}
+    </div>
+  )
+}
+
 function WebSynthParameterControl({ parameter, vertical = false }: { parameter: WebSynthParameter; vertical?: boolean }) {
   const value = usePatchStore((state) => state.values[parameter.id])
   const shapeWaveform = usePatchStore((state) => state.values[parameter.id === 'osc1Shape' ? 'osc1Wave' : 'osc2Wave'])
@@ -182,7 +262,7 @@ function WebSynthParameterControl({ parameter, vertical = false }: { parameter: 
       <div className="parameter-heading">
         <label htmlFor={vertical || (valueLabels && !isWaveform) ? `web-${parameter.id}` : undefined}>{parameter.shortLabel}</label>
         <ClickControlHelp label={parameter.label} text={webSynthParameterHelp[parameter.id]} />
-        {(valueLabels || vertical) && <output>{valueText}</output>}
+        {valueLabels && <output>{valueText}</output>}
       </div>
       {valueLabels && !isWaveform ? (
         <select id={`web-${parameter.id}`} value={value} aria-label={parameter.label} aria-description="Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))}>
@@ -212,7 +292,7 @@ function WebSynthParameterControl({ parameter, vertical = false }: { parameter: 
           onChange={update}
         />
       )}
-      {!valueLabels && !vertical && <output className="rotary-value">{valueText}</output>}
+      {!valueLabels && <WebSynthNumberInput parameter={parameter} value={value} valueText={valueText} onChange={update} />}
     </div>
   )
 }
@@ -266,7 +346,16 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
   })
   const [presetName, setPresetName] = useState('')
   const [savedMessage, setSavedMessage] = useState('')
-  const [tutorial, setTutorial] = useState<{ step: number; previousValues: Record<string, number> } | null>(null)
+  const [tutorial, setTutorial] = useState<{ step: number } | null>(null)
+  const [tutorialPreference, setTutorialPreference] = useState(() => {
+    try {
+      const stored = localStorage.getItem(tutorialDismissedStorageKey)
+      if (stored !== null && stored !== 'true') throw new Error('Saved tutorial preference is invalid.')
+      return { dismissed: stored === 'true', error: '' }
+    } catch (error) {
+      return { dismissed: false, error: `Could not load tutorial preference: ${error instanceof Error || error instanceof DOMException ? error.message : 'Browser storage is unavailable.'}` }
+    }
+  })
   const [graduated, setGraduated] = useState(false)
   const tutorialHeading = useRef<HTMLHeadingElement>(null)
   const startTutorialButton = useRef<HTMLButtonElement>(null)
@@ -297,18 +386,21 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
 
   function startTutorial() {
     webAudioSynth.allNotesOff()
-    setTutorial({ step: 0, previousValues: { ...values } })
+    setTutorial({ step: 0 })
     applyProfileValues('web-synth', tutorialInitialValues)
     setGraduated(false)
     setSavedMessage('')
   }
 
-  function leaveTutorial(restore: boolean) {
-    if (restore && tutorial) {
-      webAudioSynth.allNotesOff()
-      applyProfileValues('web-synth', tutorial.previousValues)
+  function exitTutorial() {
+    try {
+      localStorage.setItem(tutorialDismissedStorageKey, 'true')
+      setTutorialPreference({ dismissed: true, error: '' })
+    } catch (error) {
+      setTutorialPreference({ dismissed: true, error: `Could not remember tutorial preference: ${error instanceof Error || error instanceof DOMException ? error.message : 'Browser storage is unavailable.'} The tutorial introduction may appear on your next visit.` })
     }
     setTutorial(null)
+    startTutorialButton.current?.focus()
   }
 
   function savePreset() {
@@ -319,7 +411,7 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
       setPresetName('')
       if (tutorial && !lesson) {
         setGraduated(true)
-        leaveTutorial(false)
+        exitTutorial()
       }
     } catch (error) {
       setPresetState((current) => ({ ...current, error: `Could not save preset: ${error instanceof Error || error instanceof DOMException ? error.message : 'Browser storage is unavailable.'}` }))
@@ -358,28 +450,41 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
       </p>
       <section className="synth-tutorial" aria-label="Subtractive synthesis tutorial">
         {!tutorial ? <>
-          <h3>Learn subtractive synthesis</h3>
-          <p>Six hands-on challenges, one patch of your own. Unlock controls from oscillator to modulation, earn badges, and save your sound. No timer or score penalty.</p>
-          <p>Starting uses a learning patch and keeps your current patch available to restore until you leave the tutorial.</p>
-          <button ref={startTutorialButton} type="button" onClick={startTutorial}>Start tutorial</button>
+          {!tutorialPreference.dismissed && <>
+            <h3>Learn subtractive synthesis</h3>
+            <p>Six hands-on challenges, one patch of your own. Unlock controls from oscillator to modulation, earn badges, and save your sound. No timer or score penalty.</p>
+            <p>Starting replaces your current sound with a learning patch. You can exit at any time.</p>
+          </>}
+          <div className="tutorial-actions">
+            <button ref={startTutorialButton} type="button" onClick={startTutorial}>Start tutorial</button>
+            {!tutorialPreference.dismissed && <button type="button" onClick={exitTutorial}>Skip tutorial</button>}
+          </div>
           {graduated && <p role="status">Patch builder badge earned! 700 XP. All controls are unlocked.</p>}
         </> : <>
-          <span className="eyebrow">Patch builder quest / {tutorial.step * 100} XP</span>
+          <div className="tutorial-progress-heading">
+            <span className="eyebrow">Patch builder quest / {tutorial.step * 100} XP</span>
+            <span>{tutorial.step} of 7 challenges complete</span>
+          </div>
           <progress aria-label="Tutorial progress" value={tutorial.step} max={subtractiveLessons.length + 1} />
+          <ol className="tutorial-roadmap" aria-label="Tutorial steps">
+            {[...subtractiveLessons, tutorialSaveLesson].map((item, step) => <li key={item.shortTitle} aria-current={step === tutorial.step ? 'step' : undefined} className={step < tutorial.step ? 'tutorial-step-done' : ''}>
+              <span>{step + 1}. {item.shortTitle}</span>
+              {step < tutorial.step && <span className="tutorial-step-state">Done</span>}
+              {step === tutorial.step && <span className="tutorial-step-state">Current</span>}
+            </li>)}
+          </ol>
           <h3 ref={tutorialHeading} tabIndex={-1}>{lesson ? `Challenge ${tutorial.step + 1} of 7: ${lesson.title}` : 'Challenge 7 of 7: Save your sound'}</h3>
-          <p>{lesson?.concept ?? 'A preset stores the whole recipe: waveforms, tuning, levels, filters, envelopes, and modulation. Give your patch a name below and save it to earn your Patch builder badge.'}</p>
-          {lesson && <p className="tutorial-challenge">{lesson.challenge}</p>}
-          <p className="tutorial-signal-chain">Oscillators &gt; individual filters &gt; mix &gt; amplifier &gt; speakers. Envelopes and LFO add movement.</p>
-          <p role="status">{lesson ? lesson.complete(values) ? `Target reached! Claim ${lesson.reward} and 100 XP.` : 'Explore the unlocked controls to reach the target.' : 'Name and save your preset below to finish.'}</p>
+          <TutorialExplainer lesson={lesson ?? tutorialSaveLesson} />
+          <p className="tutorial-feedback" role="status">{lesson ? lesson.complete(values) ? `Target reached! Claim ${lesson.reward} and 100 XP.` : 'Explore the unlocked controls to reach the target.' : 'Name and save your preset below to finish.'}</p>
           {tutorial.step > 0 && <p>Badges: {subtractiveLessons.slice(0, tutorial.step).map((item) => item.reward).join(' / ')}</p>}
           <div className="tutorial-actions">
             {lesson && <button type="button" disabled={!lesson.complete(values)} onClick={() => setTutorial({ ...tutorial, step: tutorial.step + 1 })}>Claim badge and continue</button>}
-            <button type="button" onClick={() => leaveTutorial(false)}>Leave and keep patch</button>
-            <button type="button" onClick={() => leaveTutorial(true)}>Leave and restore previous patch</button>
+            <button type="button" onClick={exitTutorial}>Exit tutorial</button>
           </div>
         </>}
       </section>
-      {(!tutorial || !lesson) && <form className="web-preset-save" onSubmit={(event) => { event.preventDefault(); savePreset() }}>
+      {tutorialPreference.error && <p className="preset-error" role="alert">{tutorialPreference.error}</p>}
+      {(!tutorial || !lesson) && <form className={`web-preset-save${tutorial ? ' tutorial-preset-save' : ''}`} onSubmit={(event) => { event.preventDefault(); savePreset() }}>
         <label htmlFor="web-preset-name">Preset name</label>
         <input id="web-preset-name" value={presetName} maxLength={64} required onChange={(event) => setPresetName(event.target.value)} placeholder="My first patch" />
         <button type="submit" disabled={!presetName.trim()}>Save preset</button>
@@ -699,7 +804,7 @@ function LfoModule() {
   const range = usePatchStore((state) => (selectedLfo === 1 ? state.values.lfo1Range : selectedLfo === 2 ? state.values.lfo2Range : null))
   const isSynced = range === LFO_RANGE_SYNC
 
-  function isDisabled(parameter: SummitParameterDefinition) {
+  function isDisabled(parameter: HardwareParameterDefinition) {
     if (parameter.id.endsWith('SyncRate')) return !isSynced
     if (parameter.id.endsWith('Rate')) return isSynced
     return false
@@ -1001,6 +1106,63 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
   )
 }
 
+function UltraNovaPanel() {
+  const [lfo, setLfo] = useState(1)
+  const [envelope, setEnvelope] = useState(2)
+  const controls = (section: string) => (
+    <div className="parameter-grid"><ParameterGroup parameters={ultranovaParameters.filter((parameter) => parameter.section === section)} /></div>
+  )
+  return (
+    <div className="panel-workspace">
+      <div className="panel-intro">
+        <span className="eyebrow">Novation UltraNova sound engine</span>
+        <p>Single-part editing on the selected MIDI channel. Save your hardware patch before sending defaults.</p>
+      </div>
+      <div className="peak-panel ultranova-panel" aria-label="UltraNova synth panel">
+        <div className="utility-module">
+          <PanelModule id="ultranova-master" title="Master / Touch" className="master-module">
+            <UnavailableControls>Master volume and Touch performance controls.</UnavailableControls>
+          </PanelModule>
+          <PanelModule id="ultranova-transfer" title="Patch transfer" className="patch-panel">
+            <UnavailableControls>UltraNova SysEx import, export and edit-buffer requests. Use the Novation librarian to back up patches.</UnavailableControls>
+          </PanelModule>
+        </div>
+        <PanelModule id="ultranova-lfo" title="LFOs" className="lfo-module">
+          <div className="lfo-selector">
+            {[1, 2, 3].map((index) => <button key={index} type="button" aria-pressed={lfo === index} onClick={() => setLfo(index)}>LFO {index}</button>)}
+          </div>
+          {controls(`LFO ${lfo}`)}
+        </PanelModule>
+        <PanelModule id="ultranova-amp" title="Amp envelope" className="amp-module">{controls('Amp envelope')}</PanelModule>
+        <PanelModule id="ultranova-envelopes" title="Filter / mod envelopes" className="mod-envelopes-module">
+          <div className="lfo-selector">
+            {[2, 3, 4, 5, 6].map((index) => <button key={index} type="button" aria-pressed={envelope === index} onClick={() => setEnvelope(index)}>{index === 2 ? 'Filter env' : `Env ${index}`}</button>)}
+          </div>
+          {controls(`Envelope ${envelope}`)}
+        </PanelModule>
+        <div className="oscillator-bank">
+          {[1, 2, 3].map((index) => <PanelModule key={index} id={`ultranova-osc-${index}`} title={`Oscillator ${index}`} className="oscillator-module">{controls(`Oscillator ${index}`)}</PanelModule>)}
+        </div>
+        <PanelModule id="ultranova-mixer" title="Mixer" className="mixer-module">{controls('Mixer')}</PanelModule>
+        <PanelModule id="ultranova-filter" title="Filters" className="filter-module">
+          {[1, 2].map((index) => <div key={index} role="group" aria-label={`Filter ${index}`}>
+            <h3 className="sub-module-title">Filter {index}</h3>{controls(`Filter ${index}`)}
+          </div>)}
+          {controls('Filter routing')}
+        </PanelModule>
+        <PanelModule id="ultranova-matrix" title="Modulation matrix" className="matrix-module">
+          <UnavailableControls>UltraNova's 20-slot matrix and Touch assignments. Summit matrix mappings are not used.</UnavailableControls>
+        </PanelModule>
+        <PanelModule id="ultranova-arp" title="Arp" className="arp-module" help="Octave range and gate only. Arpeggiator on/off, latch, clock and patterns are not yet implemented.">{controls('Arp')}</PanelModule>
+        <PanelModule id="ultranova-glide" title="Glide" className="glide-module">{controls('Glide')}</PanelModule>
+        <PanelModule id="ultranova-effects" title="Effects" className="effects-module" help="Select the processor and level for each of the five effect slots. Processor settings, routing and vocoder controls are not yet implemented.">{controls('Effects')}</PanelModule>
+        <PanelModule id="ultranova-voice" title="Voice / oscillator common" className="menu-module">{controls('Voice')}</PanelModule>
+        <div className="panel-caption"><Waves aria-hidden="true" /><span>PEAK-inspired layout / ULTRANOVA MIDI</span><span>Documented controls only</span></div>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [debug, setDebug] = useState(false)
   const midi = useMidi()
@@ -1078,11 +1240,11 @@ function App() {
   function resetPatch() {
     resetValues()
     const sent = activeProfile.capabilities.midiOutput && midiEngine.resetHardwareToDefaults()
-    setFileMessage(sent ? 'Defaults restored locally and sent to Summit.' : 'Defaults restored locally.')
+    setFileMessage(sent ? `Defaults restored locally and sent to ${activeProfileId === 'summit' ? 'Summit' : 'UltraNova'}.` : 'Defaults restored locally.')
   }
 
   return (
-    <div className={`app-shell${debug ? ' debug-mode' : ''}`}>
+    <div className={`app-shell${activeProfileId === 'ultranova' ? ' ultranova-theme' : ''}${debug ? ' debug-mode' : ''}`}>
       <header className="app-header">
         <div className="brand-block">
           <div className="brand-mark"><SlidersHorizontal aria-hidden="true" /></div>
@@ -1176,13 +1338,13 @@ function App() {
             <MenuSettingsModule />
             <div className="panel-caption"><Waves aria-hidden="true" /><span>PEAK-inspired layout / SUMMIT MIDI</span><span>Documented controls only</span></div>
           </div>
-        </div> : <WebSynthPanel audio={audio} />}
+        </div> : activeProfileId === 'ultranova' ? <UltraNovaPanel /> : <WebSynthPanel audio={audio} />}
       </main>
 
       {(activeProfile.capabilities.audioOutput || activeProfile.capabilities.midiOutput) && <VirtualKeyboard key={`${activeProfileId}:${activeProfileId === 'web-synth' ? audio.status : midi.selectedOutputId}`} output={keyboardOutput} />}
 
       <footer className="app-footer">
-        {activeProfile.capabilities.midiOutput && <div><Cable aria-hidden="true" /><span>Web MIDI / SysEx</span></div>}
+        {activeProfile.capabilities.midiOutput && <div><Cable aria-hidden="true" /><span>{activeProfile.capabilities.sysex ? 'Web MIDI / SysEx' : 'Web MIDI / CC + NRPN'}</span></div>}
         {activeProfile.capabilities.audioOutput && <div><Waves aria-hidden="true" /><span>Web Audio / optional MIDI input</span></div>}
         <p>Best in current Chrome, Edge, or Firefox on desktop. Web MIDI requires HTTPS or localhost; built-in audio does not require MIDI.</p>
         <div className="footer-actions">

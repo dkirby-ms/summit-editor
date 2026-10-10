@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { usePatchStore } from './model/patchStore'
 import { webSynthDefaultValues, webSynthParameters } from './model/webSynthProfile'
-import { subtractiveLessons, tutorialInitialValues } from './model/subtractiveTutorial'
+import { subtractiveLessons, tutorialDismissedStorageKey, tutorialInitialValues, tutorialSaveLesson } from './model/subtractiveTutorial'
 import { readWebSynthPresets, webSynthPresetStorageKey } from './model/webSynthPresetStorage'
 import { webAudioSynth } from './audio/webAudioSynth'
 
@@ -20,7 +20,85 @@ describe('subtractive synthesis tutorial', () => {
     vi.restoreAllMocks()
   })
 
-  it('is opt-in, hides locked controls from keyboard access, and restores the original patch', async () => {
+  it('accepts exact keyboard values, rejects invalid edits, and keeps sliders synchronized', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    expect(screen.queryByRole('spinbutton')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Edit oscillator 1 filter cutoff value:/ }))
+    let cutoff = screen.getByRole('spinbutton', { name: 'Oscillator 1 filter cutoff value' })
+    expect(cutoff).toHaveFocus()
+    await user.clear(cutoff)
+    await user.type(cutoff, '1500{Enter}')
+    expect(usePatchStore.getState().values.filterCutoff).toBe(1500)
+    expect(screen.getByRole('slider', { name: 'Oscillator 1 filter cutoff' })).toHaveAttribute('aria-valuenow', '1500')
+    await user.click(screen.getByRole('button', { name: /^Edit oscillator 1 filter cutoff value:/ }))
+    cutoff = screen.getByRole('spinbutton', { name: 'Oscillator 1 filter cutoff value' })
+    await user.clear(cutoff)
+    await user.type(cutoff, '12001{Enter}')
+    expect(screen.getByRole('alert')).toHaveTextContent('Enter a whole number from 100 to 12000')
+    expect(cutoff).toHaveAttribute('aria-invalid', 'true')
+    expect(usePatchStore.getState().values.filterCutoff).toBe(1500)
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('button', { name: /^Edit oscillator 1 filter cutoff value:/ })).toHaveTextContent('1500 Hz')
+    await user.click(screen.getByRole('button', { name: /^Edit oscillator 1 filter cutoff value:/ }))
+    cutoff = screen.getByRole('spinbutton', { name: 'Oscillator 1 filter cutoff value' })
+    await user.clear(cutoff)
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('button', { name: /^Edit oscillator 2 detune value:/ }))
+    const detune = screen.getByRole('spinbutton', { name: 'Oscillator 2 detune value' })
+    await user.clear(detune)
+    await user.type(detune, '-7')
+    await user.tab()
+    expect(usePatchStore.getState().values.osc2Detune).toBe(-7)
+    await user.click(screen.getByRole('button', { name: /^Edit amplifier attack value:/ }))
+    const attack = screen.getByRole('spinbutton', { name: 'Amplifier attack value' })
+    await user.clear(attack)
+    await user.type(attack, '25{Enter}')
+    expect(screen.getByRole('slider', { name: 'Amplifier attack' })).toHaveValue('25')
+    fireEvent.change(screen.getByRole('slider', { name: 'Amplifier attack' }), { target: { value: '50' } })
+    expect(screen.getByRole('button', { name: /^Edit amplifier attack value:/ })).toHaveTextContent('50 ms')
+    await user.click(screen.getByRole('button', { name: /^Edit amplifier attack value:/ }))
+    await user.keyboard('{Control>}a{/Control}{Delete}')
+    expect(usePatchStore.getState().values.ampAttack).toBe(50)
+    await user.keyboard('{Escape}')
+  })
+
+  it('presents every challenge with structured actions, listening guidance, an accessible sketch, and a current step', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Start tutorial' }))
+    const tutorial = within(screen.getByRole('region', { name: 'Subtractive synthesis tutorial' }))
+    const targets: Readonly<Record<string, number>>[] = [
+      { osc1Wave: 2 },
+      { osc2Level: 30, osc2Detune: 7 },
+      { filterCutoff: 1500, filter2Cutoff: 1500, filterResonance: 20, filter2Resonance: 20 },
+      { ampAttack: 15, ampDecay: 350, ampSustain: 30, ampRelease: 500 },
+      { filterEnvelopeAmount: 40, filterAttack: 10, filterDecay: 600, filterSustain: 20 },
+      { lfoRate: 4, lfoPitchDepth: 10 },
+    ]
+    for (const [step, lesson] of [...subtractiveLessons, tutorialSaveLesson].entries()) {
+      for (const heading of ['Learn', 'See the idea', 'Try it', 'Listen for']) {
+        expect(tutorial.getByRole('heading', { name: heading, level: 4 })).toBeInTheDocument()
+      }
+      expect(tutorial.getByText(lesson.takeaway)).toBeInTheDocument()
+      expect(tutorial.getByText(lesson.listen)).toBeInTheDocument()
+      for (const action of lesson.challenge) expect(tutorial.getByText(action).tagName).toBe('LI')
+      expect(tutorial.getByRole('img')).toHaveAccessibleDescription(lesson.visualCaption)
+      expect(tutorial.getByRole('img')).toHaveAccessibleName()
+      const steps = within(tutorial.getByRole('list', { name: 'Tutorial steps' })).getAllByRole('listitem')
+      expect(steps).toHaveLength(7)
+      expect(steps[step]).toHaveAttribute('aria-current', 'step')
+      expect(steps.filter((item) => item.hasAttribute('aria-current'))).toHaveLength(1)
+      if (step < targets.length) {
+        act(() => usePatchStore.getState().applyProfileValues('web-synth', { ...usePatchStore.getState().values, ...targets[step] }))
+        await user.click(tutorial.getByRole('button', { name: 'Claim badge and continue' }))
+      }
+    }
+  })
+
+  it('is opt-in, hides locked controls from keyboard access, and exits with the current patch', async () => {
     const user = userEvent.setup()
     const original = { ...webSynthDefaultValues, filterCutoff: 2345 }
     usePatchStore.getState().applyProfileValues('web-synth', original)
@@ -44,8 +122,11 @@ describe('subtractive synthesis tutorial', () => {
     await user.click(screen.getByRole('button', { name: 'Claim badge and continue' }))
     expect(screen.getByRole('region', { name: 'Oscillator 2' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Filter' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Leave and restore previous patch' }))
-    expect(usePatchStore.getState().values).toEqual(original)
+    const learningPatch = { ...usePatchStore.getState().values }
+    await user.click(screen.getByRole('button', { name: 'Exit tutorial' }))
+    expect(usePatchStore.getState().values).toEqual(learningPatch)
+    expect(localStorage.getItem(tutorialDismissedStorageKey)).toBe('true')
+    expect(screen.queryByRole('heading', { name: 'Learn subtractive synthesis' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Start tutorial' })).toHaveFocus()
     expect(screen.getByRole('region', { name: 'Filter' })).toBeInTheDocument()
   })
@@ -102,6 +183,9 @@ describe('subtractive synthesis tutorial', () => {
     unmount()
     usePatchStore.getState().resetValues()
     render(<App />)
+    expect(localStorage.getItem(tutorialDismissedStorageKey)).toBe('true')
+    expect(screen.queryByRole('heading', { name: 'Learn subtractive synthesis' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Skip tutorial' })).not.toBeInTheDocument()
     await user.selectOptions(screen.getByRole('combobox', { name: 'Web synth preset' }), readWebSynthPresets()[0].id)
     expect(usePatchStore.getState().values).toEqual(patch)
   })
@@ -112,13 +196,65 @@ describe('subtractive synthesis tutorial', () => {
     await user.click(screen.getByRole('button', { name: 'Start tutorial' }))
     await user.click(within(screen.getByRole('group', { name: 'Oscillator 1 waveform' })).getByRole('radio', { name: 'Square' }))
     await user.click(screen.getByRole('button', { name: 'Claim badge and continue' }))
-    await user.click(screen.getByRole('button', { name: 'Leave and keep patch' }))
+    await user.click(screen.getByRole('button', { name: 'Exit tutorial' }))
     expect(usePatchStore.getState().values.osc1Wave).toBe(3)
     await user.click(screen.getByRole('button', { name: 'Start tutorial' }))
     expect(screen.getByRole('heading', { name: /Challenge 1/ })).toBeInTheDocument()
     expect(screen.getByRole('progressbar')).toHaveAttribute('value', '0')
-    await user.click(screen.getByRole('button', { name: 'Leave and restore previous patch' }))
-    expect(usePatchStore.getState().values.osc1Wave).toBe(3)
+    await user.click(screen.getByRole('button', { name: 'Exit tutorial' }))
+    expect(usePatchStore.getState().values.osc1Wave).toBe(tutorialInitialValues.osc1Wave)
+  })
+
+  it('remembers skipping across remounts without changing the patch and allows replay', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Skip tutorial' }))
+    expect(screen.getByRole('button', { name: 'Start tutorial' })).toHaveFocus()
+    expect(usePatchStore.getState().values).toEqual(webSynthDefaultValues)
+    unmount()
+    render(<App />)
+    expect(screen.queryByRole('heading', { name: 'Learn subtractive synthesis' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Skip tutorial' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Voice / unison' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Start tutorial' }))
+    expect(screen.getByRole('heading', { name: /Challenge 1/ })).toBeInTheDocument()
+  })
+
+  it('remembers exiting across profile changes and remounts', async () => {
+    const user = userEvent.setup()
+    const { unmount } = render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Start tutorial' }))
+    await user.click(screen.getByRole('button', { name: 'Exit tutorial' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'summit')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+    expect(screen.queryByRole('button', { name: 'Skip tutorial' })).not.toBeInTheDocument()
+    unmount()
+    render(<App />)
+    expect(screen.queryByRole('heading', { name: 'Learn subtractive synthesis' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start tutorial' })).toBeInTheDocument()
+  })
+
+  it('exits even if storage fails and explains that the preference could not be remembered', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Start tutorial' }))
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Storage full', 'QuotaExceededError') })
+    await user.click(screen.getByRole('button', { name: 'Exit tutorial' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not remember tutorial preference: Storage full')
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Voice / unison' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Start tutorial' })).toHaveFocus()
+  })
+
+  it('reports preference read failures while keeping the tutorial optional', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation((key) => {
+      if (key === tutorialDismissedStorageKey) throw new DOMException('Storage blocked', 'SecurityError')
+      return null
+    })
+    render(<App />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not load tutorial preference: Storage blocked')
+    expect(screen.getByRole('button', { name: 'Skip tutorial' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Voice / unison' })).toBeInTheDocument()
   })
 
   it('shows storage errors without awarding a completion badge or destroying corrupted data', async () => {

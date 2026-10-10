@@ -1,13 +1,13 @@
 ---
 title: Zinth
-description: Browser-based synth patch designer with a built-in Web Synth and optional Novation Summit MIDI support.
+description: Browser-based synth patch designer with a built-in Web Synth and optional Novation Summit and UltraNova MIDI support.
 ---
 
 # Zinth
 
 A browser-based synth patch designer with a built-in Web Synth selected by default. Connect to
-Novation Summit over Web MIDI to edit supported controls and transfer patch files, or use the
-virtual keyboard with either synth profile.
+Novation Summit or UltraNova over Web MIDI to edit supported controls, or use the
+virtual keyboard with any synth profile. Summit also supports raw patch transfer.
 
 ## Start
 
@@ -26,9 +26,9 @@ set **Pages** → **Build and deployment** → **Source** to **GitHub Actions**.
 
 ## Connect
 
-1. Connect and power on the Summit.
+1. Connect and power on your synth, then select its **Synth profile**.
 2. Select **Connect MIDI** and allow access.
-3. Choose the Summit MIDI input and output, then select its MIDI channel.
+3. Choose your synth's MIDI input and output, then select its MIDI channel.
 
 Supported control changes are sent to the synth and reflected in the editor.
 
@@ -66,6 +66,33 @@ The editor currently provides one set of patch controls; independent Summit A/B
 layer editing is not supported. Verify MIDI behavior with your hardware before
 relying on changes.
 
+## Novation UltraNova
+
+Select **Novation UltraNova** for a Summit-style panel with a blue chassis,
+dark knobs and red LED accents. UltraNova keeps its own patch values, separate
+from Summit and Web Synth, and uses its own CC and NRPN mappings.
+
+Supported controls include three oscillators (all 72 waveform choices), mixer,
+two filters and their routing, amplifier ADSR, envelopes 2-6, three LFOs,
+five effect-slot selections and levels, voice/unison, glide, and arp octaves
+and gate. Use the LFO and envelope selectors to edit each generator.
+Each effect processor can occupy only one slot; already-assigned processors
+are unavailable in the other slot selectors.
+Reset defaults restores and transmits only these controls, not a complete
+hardware Init patch. Save your hardware patch first.
+
+Mappings follow Novation's [UltraNova MIDI implementation](https://fael-downloads-prod.focusrite.com/customer/prod/s3fs-public/novation/downloads/10539/ultranova-midi-implementation2.pdf)
+and [user guide](https://fael-downloads-prod.focusrite.com/customer/prod/s3fs-public/novation/downloads/10524/ultranova-userguide2.pdf).
+Enable MIDI control transmission/reception on your synth and verify behavior
+with your hardware. Zinth does not read the current patch into these controls;
+incoming supported CC/NRPN edits update them without echoing.
+
+UltraNova SysEx transfer, its 20-slot modulation matrix, Touch controls,
+vocoder, effect-processor settings, and arp on/off, latch, clock and patterns
+are not yet implemented. These limitations are shown in the panel.
+Use Novation's librarian to back up and transfer UltraNova patches.
+Summit's experimental patch-transfer and matrix support are unchanged.
+
 ## Learn subtractive synthesis
 
 Select Built-in Web Synth and choose **Start tutorial** for an optional,
@@ -81,20 +108,61 @@ controls as you earn six badges and 100 XP per challenge:
 
 Use **Start audio** and the virtual keyboard to hear each change. The displayed
 targets enable **Claim badge and continue**; earlier controls remain available.
+Each challenge uses a consistent **Learn**, **See the idea**, **Try it**, and
+**Listen for** layout. Compact 15px lesson text, numbered actions with suggested
+settings, and a seven-step roadmap make it easier to follow. Tighter spacing,
+smaller diagrams, and side-by-side action and listening cards on desktop leave
+more room for the synth controls. Original, labeled
+concept sketches explain harmonics, detuning, filters, envelopes, vibrato, and
+presets. They illustrate ideas rather than measure live audio; the envelope
+graphs in the controls respond to your settings. Listening is encouraged but
+is not a requirement to advance.
+
+Click a numeric Web Synth value label (or focus it and press Enter) to edit
+an exact value inline, such as a filter cutoff of 1500 Hz. Press Enter or leave the field to apply a
+whole-number value in the displayed control's range, or press Escape to cancel.
+Invalid or empty entries show an error without changing the sound. Knobs and
+sliders remain available and stay synchronized with the value fields.
+
 The seventh challenge names and saves your sound, earning the Patch builder
 badge and bringing your total to 700 XP. Saving unlocks the full editor.
 This teaches subtractive synthesis, not FM or ring modulation.
 
-You can leave at any time, keeping your learning patch or restoring the patch
-you had before starting. Switching synth profiles leaves your learning patch
-in Web Synth and exits the tutorial. Progress is not retained after leaving
-or reloading.
+Choose **Skip tutorial** to dismiss the introduction without changing your sound,
+or **Exit tutorial** at any time to return to the full editor with your current
+learning patch. Starting the tutorial replaces your current sound with a learning
+patch; exiting does not restore the previous sound.
+
+Skipping, exiting, or completing the tutorial is remembered in this browser and
+site, so returning users no longer see the introduction. **Start tutorial** remains
+available if you want to try again. Clearing site data resets this preference.
+Storage failures are displayed if the preference cannot be remembered.
+Switching synth profiles exits the tutorial and leaves your learning patch in
+Web Synth. Challenge progress is not retained after exiting or reloading.
 
 You can also name and **Save preset** outside the tutorial. Saved patches appear
 under **Your browser presets** in the preset selector and survive page reloads.
 They store all Web Synth parameters, remain separate from Summit SysEx files,
 and are local to this browser and site. Clearing site data removes them.
 Storage failures are displayed without reporting a successful save.
+
+### Tutorial presentation rationale
+
+The presentation applies research-backed guidance, with original lesson text
+and diagrams rather than reproducing third-party material:
+
+* Keep explanations and relevant diagrams together, emphasize essential ideas,
+  and remove decorative distractions, following
+  [Mayer's multimedia learning principles](https://www.cambridge.org/core/books/cambridge-handbook-of-multimedia-learning/principles-for-reducing-extraneous-processing-in-multimedia-learning-coherence-signaling-redundancy-spatial-contiguity-and-temporal-contiguity-principles/C98AB3A6CE760DD63C048936EA0B3B44).
+* Use headings, spacing, explicit feedback, and text alternatives for diagrams,
+  following [W3C WAI design guidance](https://www.w3.org/WAI/tips/designing/).
+* Use comfortable screen text sizes, following
+  [Practical Typography's point-size guidance](https://practicaltypography.com/point-size.html).
+
+These are design choices informed by research, not evidence that this tutorial
+has improved learning outcomes. Validate that with beginner usability sessions:
+can learners find the next action, explain cutoff versus loudness, distinguish
+an envelope from an LFO, and save their patch without assistance?
 
 ## Checks
 
