@@ -65,6 +65,37 @@ describe('subtractive synthesis tutorial', () => {
     await user.keyboard('{Escape}')
   })
 
+  it('displays real envelope durations while editing milliseconds and sustain percentages', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    for (const prefix of ['Amplifier', 'Filter']) {
+      for (const [stage, maximum] of Object.entries({ attack: 20000, decay: 22000, release: 30000 })) {
+        const slider = screen.getByRole('slider', { name: `${prefix} ${stage}` })
+        expect(slider).toHaveAttribute('max', String(maximum))
+        fireEvent.change(slider, { target: { value: String(maximum) } })
+        expect(slider).toHaveAttribute('aria-valuetext', `${maximum / 1000} s`)
+        const button = screen.getByRole('button', { name: new RegExp(`^Edit ${prefix.toLowerCase()} ${stage} value:`) })
+        expect(button).toHaveTextContent(`${maximum / 1000} s`)
+        await user.click(button)
+        const input = screen.getByRole('spinbutton', { name: `${prefix} ${stage} value` })
+        expect(input).toHaveValue(maximum)
+        expect(input).toHaveAttribute('aria-description', expect.stringContaining('milliseconds'))
+        expect(screen.getByText('Milliseconds (ms)')).toBeVisible()
+        await user.clear(input)
+        await user.type(input, '1500{Enter}')
+        expect(slider).toHaveValue('1500')
+        expect(slider).toHaveAttribute('aria-valuetext', '1.5 s')
+        fireEvent.change(slider, { target: { value: '999' } })
+        expect(slider).toHaveAttribute('aria-valuetext', '999 ms')
+        fireEvent.keyDown(slider, { key: 'Delete' })
+      }
+      const sustain = screen.getByRole('slider', { name: `${prefix} sustain` })
+      expect(sustain).toHaveAttribute('max', '100')
+      fireEvent.change(sustain, { target: { value: '100' } })
+      expect(sustain).toHaveAttribute('aria-valuetext', '100%')
+    }
+  })
+
   it('presents every challenge with structured actions, listening guidance, an accessible sketch, and a current step', async () => {
     const user = userEvent.setup()
     render(<App />)
@@ -96,6 +127,31 @@ describe('subtractive synthesis tutorial', () => {
         await user.click(tutorial.getByRole('button', { name: 'Claim badge and continue' }))
       }
     }
+  })
+
+  it('shows labeled harmonic spectra instead of the placeholder sketch', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(screen.getByRole('button', { name: 'Start tutorial' }))
+    const diagram = screen.getByRole('img', { name: /Harmonic spectra/ })
+    expect(diagram).toHaveAccessibleDescription(subtractiveLessons[0].visualCaption)
+    expect(within(diagram).getByText('Sine')).toBeInTheDocument()
+    expect(within(diagram).getByText('Sawtooth')).toBeInTheDocument()
+    expect(within(diagram).getAllByText('Relative strength')).toHaveLength(2)
+    const spectra = diagram.querySelectorAll('.harmonic-spectrum')
+    expect(spectra).toHaveLength(2)
+    for (const [index, spectrum] of [...spectra].entries()) {
+      const bars = spectrum.querySelectorAll<HTMLElement>('.harmonic-bar')
+      expect(bars).toHaveLength(8)
+      for (const [harmonic, bar] of [...bars].entries()) {
+        const expected = index === 0 && harmonic > 0 ? 0 : 100 / (harmonic + 1)
+        expect(parseFloat(bar.style.height)).toBeCloseTo(expected)
+      }
+      expect(spectrum.querySelectorAll('.harmonic-tick')).toHaveLength(8)
+    }
+    expect(screen.queryByText(/Concept sketch, not a live audio measurement/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Top: Sine/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Bottom: Sawtooth/)).not.toBeInTheDocument()
   })
 
   it('is opt-in, hides locked controls from keyboard access, and exits with the current patch', async () => {

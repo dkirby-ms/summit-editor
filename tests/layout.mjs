@@ -64,7 +64,56 @@ for (const { width, height } of viewports) {
   })
 }
 
+for (const width of [800, 801, 900, 1366, 390, 320]) {
+  test(`harmonic labels reflow with enlarged text at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 844 } })
+    try {
+      await page.goto(baseUrl)
+      await page.getByRole('button', { name: 'Start tutorial', exact: true }).click()
+      await page.addStyleTag({ content: `
+        html { font-size: 200% !important; }
+        .synth-tutorial * { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }
+      ` })
+      const layout = await page.locator('.harmonic-comparison').evaluate((chart) => ({
+        pageWidth: document.documentElement.scrollWidth,
+        ticks: chart.querySelectorAll('.harmonic-tick').length,
+        clipped: [...chart.querySelectorAll('span, strong, p')]
+          .filter((element) => element.scrollWidth > element.clientWidth + 1)
+          .map((element) => element.textContent),
+      }))
+      assert.ok(layout.pageWidth <= width, 'Enlarged harmonic charts must not overflow the page')
+      assert.equal(layout.ticks, 16)
+      assert.deepEqual(layout.clipped, [], 'Enlarged harmonic labels must fit their cells')
+    } finally {
+      await page.close()
+    }
+  })
+}
+
 for (const width of [1366, 390, 320]) {
+  test(`envelope editor makes millisecond units visible at ${width}px`, async () => {
+    const page = await browser.newPage({ viewport: { width, height: 844 } })
+    try {
+      await page.goto(baseUrl)
+      await page.getByRole('button', { name: 'Skip tutorial', exact: true }).click()
+      await page.getByRole('button', { name: /^Edit amplifier attack value:/ }).click()
+      const input = page.getByRole('spinbutton', { name: 'Amplifier attack value', exact: true })
+      await input.fill('1500')
+      await input.press('Enter')
+      const button = page.getByRole('button', { name: /^Edit amplifier attack value:/ })
+      assert.equal(await button.innerText(), '1.5 s')
+      await button.click()
+      assert.equal(await input.inputValue(), '1500')
+      const unit = page.getByText('Milliseconds (ms)', { exact: true })
+      assert.equal(await unit.isVisible(), true)
+      assert.equal(await unit.evaluate((element) => element.scrollWidth <= element.clientWidth + 1), true)
+      await input.press('Escape')
+      assert.equal(await unit.count(), 0)
+    } finally {
+      await page.close()
+    }
+  })
+
   test(`tutorial skip and exit persist across reloads at ${width}px`, async () => {
     const page = await browser.newPage({ viewport: { width, height: 844 } })
     try {
@@ -125,6 +174,33 @@ for (const width of [1366, 390, 320]) {
         await resizedText.evaluate((element) => element.remove())
       }
       await assertLayout()
+      const spectrumLayout = await page.locator('.harmonic-spectrum').evaluateAll((spectra) => spectra.map((spectrum) => {
+        const plot = spectrum.querySelector('.harmonic-plot')
+        const bars = [...spectrum.querySelectorAll('.harmonic-bar')].map((bar) => bar.getBoundingClientRect().height)
+        return {
+          width: spectrum.getBoundingClientRect().width,
+          plotWidth: plot.getBoundingClientRect().width,
+          bars,
+          clipped: [...spectrum.querySelectorAll('span, strong')].filter((element) => element.scrollWidth > element.clientWidth + 1).map((element) => element.textContent),
+        }
+      }))
+      assert.equal(spectrumLayout.length, 2)
+      for (const spectrum of spectrumLayout) {
+        assert.ok(Math.abs(spectrum.width - spectrum.plotWidth) <= 1, 'Spectrum must fill its chart')
+        assert.deepEqual(spectrum.clipped, [])
+      }
+      assert.ok(spectrumLayout[0].bars[0] >= 60)
+      assert.deepEqual(spectrumLayout[0].bars.slice(1), Array(7).fill(0))
+      for (const [index, height] of spectrumLayout[1].bars.entries()) {
+        assert.ok(Math.abs(height - spectrumLayout[1].bars[0] / (index + 1)) < 1, 'Sawtooth harmonic heights must decrease as 1/n')
+      }
+      await page.emulateMedia({ forcedColors: 'active' })
+      const forcedColors = await page.locator('.harmonic-bar').first().evaluate((bar) => ({
+        bar: getComputedStyle(bar).backgroundColor,
+        canvas: getComputedStyle(document.querySelector('.tutorial-visual')).backgroundColor,
+      }))
+      assert.notEqual(forcedColors.bar, forcedColors.canvas, 'Harmonic bars must remain visible in forced colors')
+      await page.emulateMedia({ forcedColors: 'none' })
       assert.equal(await page.getByRole('region', { name: 'Filter', exact: true }).count(), 0)
       await page.getByRole('button', { name: 'Start audio', exact: true }).click()
       await page.getByRole('button', { name: 'Resume audio', exact: true }).waitFor()

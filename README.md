@@ -41,6 +41,12 @@ Supported control changes are sent to the synth and reflected in the editor.
   a waveform group and arrow keys to change its selection.
 - Blend the oscillators with the mixer sliders. The envelope graphs sit beside
   their ADSR sliders.
+- Web Synth amplifier and filter envelopes use actual durations: attack 0-20 s,
+  decay 0-22 s, release 0-30 s, and sustain 0-100%. Values below one second
+  display in milliseconds; longer values display in seconds. Click a value
+  to enter an exact whole number in milliseconds (for example, 1500 for 1.5 s).
+  The numeric editor shows a visible milliseconds label while editing.
+  Defaults, presets, and tutorial targets keep their existing timings.
 - Give each oscillator its own LP (low-pass), HP (high-pass), or BP (band-pass)
   filter with independent cutoff and resonance. The filter envelope is shared,
   but each filter moves relative to its own cutoff.
@@ -65,6 +71,28 @@ Supported control changes are sent to the synth and reflected in the editor.
 The editor currently provides one set of patch controls; independent Summit A/B
 layer editing is not supported. Verify MIDI behavior with your hardware before
 relying on changes.
+
+### Envelope timing comparison
+
+Summit and UltraNova expose ADSR controls as 0-127 values, not milliseconds.
+The same raw value does not necessarily produce the same duration.
+
+| Stage | Summit | UltraNova | Web Synth |
+|-------|--------|-----------|-----------|
+| Attack | Maximum over 18 s | Maximum over 20 s; 64 is about 220 ms | 0-20 s |
+| Decay | Maximum about 22 s | 64 is about 150 ms; maximum not specified | 0-22 s |
+| Sustain | 0-127 level | 0-127 level | 0-100% level |
+| Release | Maximum over 24 s | Maximum about 30 s; 64 is about 300 ms | 0-30 s |
+
+These hardware timings are approximate and come from the
+[Summit user guide](https://fael-downloads-prod.focusrite.com/customer/prod/s3fs-public/downloads/Summit%20User%20Guide%201.1%20EN.pdf)
+(Envelopes) and
+[UltraNova user guide](https://fael-downloads-prod.focusrite.com/customer/prod/s3fs-public/novation/downloads/10524/ultranova-userguide2.pdf)
+(Amplitude envelope, default slope settings). Web Synth uses the agreed shared
+hardware-sized limits, not an exact hardware curve emulation. Its attack and
+decay ramps are linear; hardware slopes can differ. Zero-time stages use a
+5 ms minimum in audio playback to avoid abrupt changes. Existing browser
+presets still store milliseconds and percentages, so no migration is needed.
 
 ## Novation UltraNova
 

@@ -154,6 +154,27 @@ describe('Web Audio synth', () => {
     expect(filters[0].frequency.audioParam.cancelAndHoldAtTime).toHaveBeenCalledWith(1)
   })
 
+  it('schedules hardware-sized envelope durations without treating them as MIDI values', async () => {
+    const { context, oscillators, gains, filters } = createAudioContext()
+    const synth = new WebAudioSynth(() => context)
+    await synth.start()
+    synth.setParameters({
+      ...webSynthDefaultValues,
+      ampAttack: 20000, ampDecay: 22000, ampSustain: 50, ampRelease: 30000,
+      filterAttack: 20000, filterDecay: 22000, filterSustain: 50, filterRelease: 30000,
+    })
+    synth.noteOn(60)
+    const peak = 0.12 / Math.sqrt(8) * 100 / 127
+    expect(gains[2].gain.linearRampToValueAtTime).toHaveBeenNthCalledWith(1, peak, 21)
+    expect(gains[2].gain.linearRampToValueAtTime).toHaveBeenNthCalledWith(2, peak * 0.5, 43)
+    expect(filters[0].frequency.linearRampToValueAtTime).toHaveBeenNthCalledWith(1, 10200, 21)
+    expect(filters[0].frequency.linearRampToValueAtTime).toHaveBeenNthCalledWith(2, 8100, 43)
+    synth.noteOff(60)
+    expect(gains[2].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 31)
+    expect(filters[0].frequency.linearRampToValueAtTime).toHaveBeenLastCalledWith(6000, 31)
+    expect(oscillators[1].stop).toHaveBeenLastCalledWith(31.005)
+  })
+
   it('removes retired voice modulation routes from the shared LFO', async () => {
     const { context, modulationConnections } = createAudioContext()
     const synth = new WebAudioSynth(() => context)
