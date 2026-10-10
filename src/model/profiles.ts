@@ -64,7 +64,7 @@ export const webSynthProfile = {
   presets: webSynthPresets,
 } satisfies SynthProfile<typeof webSynthParameters>
 
-export const synthProfiles = [summitProfile, webSynthProfile] as const satisfies readonly SynthProfile[]
+export const synthProfiles = [webSynthProfile, summitProfile] as const satisfies readonly SynthProfile[]
 
 export const synthProfileById = new Map<SynthProfileId, SynthProfile>(
   synthProfiles.map((profile): [SynthProfileId, SynthProfile] => [profile.id, profile]),

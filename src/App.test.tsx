@@ -7,7 +7,7 @@ import { defaultPatchValues, summitParameters } from './model/parameters'
 import { usePatchStore } from './model/patchStore'
 import { midiEngine, type MidiInputNoteEvent } from './midi/midiEngine'
 import { webAudioSynth } from './audio/webAudioSynth'
-import { webSynthPresets } from './model/webSynthProfile'
+import { webSynthParameterHelp, webSynthParameters, webSynthPresets } from './model/webSynthProfile'
 
 describe('Zinth', () => {
   beforeEach(() => usePatchStore.setState({
@@ -53,6 +53,7 @@ describe('Zinth', () => {
 
     expect(usePatchStore.getState().activeProfileId).toBe('web-synth')
     expect(screen.getByRole('region', { name: 'Built-in Web Synth' })).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'Live audio output waveform' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Oscillator 1' })).toBeInTheDocument()
     expect(screen.queryByLabelText('Oscillator 1 manual shape')).not.toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Synth profile' })).toHaveDisplayValue('Built-in Web Synth')
@@ -70,11 +71,23 @@ describe('Zinth', () => {
     expect(screen.getByRole('region', { name: 'LFO' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Modulation matrix' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Connect MIDI' })).toBeInTheDocument()
-    expect(screen.getByRole('slider', { name: 'Filter cutoff' })).toHaveClass('rotary-control')
-    expect(screen.getByRole('combobox', { name: 'Oscillator 1 waveform' })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Oscillator 1 filter cutoff' })).toHaveClass('rotary-control')
+    expect(screen.getByRole('group', { name: 'Oscillator 1 waveform' })).toBeInTheDocument()
+    for (const oscillator of [1, 2]) {
+      const level = screen.getByRole('slider', { name: `Oscillator ${oscillator} level` })
+      expect(level).toHaveAttribute('type', 'range')
+      expect(level).toHaveAttribute('aria-orientation', 'vertical')
+      fireEvent.change(level, { target: { value: '30' } })
+      expect(usePatchStore.getState().values[`osc${oscillator}Level`]).toBe(30)
+      fireEvent.keyDown(level, { key: 'Delete' })
+      expect(level).toHaveValue('100')
+    }
     for (const section of ['Amp envelope', 'Filter envelope']) {
-      const envelope = within(screen.getByRole('region', { name: section }))
+      const envelopeRegion = screen.getByRole('region', { name: section })
+      const envelope = within(envelopeRegion)
       expect(envelope.getByRole('img', { name: /envelope curve/i })).toBeInTheDocument()
+      expect(envelopeRegion.querySelector('.web-envelope-layout')).toBeInTheDocument()
+      expect(envelopeRegion.querySelector('.web-envelope-graph')).toHaveAttribute('preserveAspectRatio', 'none')
       for (const stage of ['Attack', 'Decay', 'Sustain', 'Release']) {
         const suffix = section === 'Amp envelope' ? 'Amplifier' : 'Filter'
         expect(envelope.getByRole('slider', { name: `${suffix} ${stage.toLowerCase()}` })).toHaveAttribute('aria-orientation', 'vertical')
@@ -84,7 +97,7 @@ describe('Zinth', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Web synth preset' }), 'soft-pad')
     expect(usePatchStore.getState().values).toEqual(webSynthPresets[0].values)
     await waitFor(() => expect(setParameters).toHaveBeenLastCalledWith(webSynthPresets[0].values))
-    fireEvent.keyDown(screen.getByRole('slider', { name: 'Filter cutoff' }), { key: 'ArrowUp' })
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Oscillator 1 filter cutoff' }), { key: 'ArrowUp' })
     expect(usePatchStore.getState().values.filterCutoff).toBe(3201)
     fireEvent.change(screen.getByRole('slider', { name: 'Amplifier attack' }), { target: { value: '1000' } })
     expect(usePatchStore.getState().values.ampAttack).toBe(1000)
@@ -93,6 +106,89 @@ describe('Zinth', () => {
     await waitFor(() => expect(setParameters).toHaveBeenLastCalledWith(expect.objectContaining({ filterCutoff: 3201 })))
     await user.click(screen.getByRole('button', { name: 'Start audio' }))
     expect(start).toHaveBeenCalledTimes(1)
+  })
+
+  it('selects graphical waveforms independently and restores their defaults and presets', async () => {
+    const user = userEvent.setup()
+    const setParameters = vi.spyOn(webAudioSynth, 'setParameters')
+    usePatchStore.getState().setActiveProfile('web-synth')
+    render(<App />)
+    const oscillator1 = within(screen.getByRole('group', { name: 'Oscillator 1 waveform' }))
+    const oscillator2 = within(screen.getByRole('group', { name: 'Oscillator 2 waveform' }))
+
+    expect(oscillator1.getAllByRole('radio')).toHaveLength(4)
+    expect(oscillator1.getByRole('radio', { name: 'Sawtooth' })).toBeChecked()
+    await user.click(oscillator1.getByRole('radio', { name: 'Square' }))
+    await user.click(oscillator2.getByRole('radio', { name: 'Sine' }))
+    expect(usePatchStore.getState().values).toMatchObject({ osc1Wave: 3, osc2Wave: 0 })
+    await waitFor(() => expect(setParameters).toHaveBeenLastCalledWith(expect.objectContaining({ osc1Wave: 3, osc2Wave: 0 })))
+    fireEvent.keyDown(oscillator1.getByRole('radio', { name: 'Square' }), { key: 'Delete' })
+    expect(oscillator1.getByRole('radio', { name: 'Sawtooth' })).toBeChecked()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Web synth preset' }), 'soft-pad')
+    expect(oscillator1.getByRole('radio', { name: 'Triangle' })).toBeChecked()
+    expect(oscillator2.getByRole('radio', { name: 'Sawtooth' })).toBeChecked()
+  })
+
+  it('edits independent filters, voice counts, LFO assignments, and contextual oscillator shape', async () => {
+    const user = userEvent.setup()
+    const setParameters = vi.spyOn(webAudioSynth, 'setParameters')
+    const sendParameter = vi.spyOn(midiEngine, 'sendParameter')
+    usePatchStore.getState().setActiveProfile('web-synth')
+    render(<App />)
+    expect(screen.getByRole('region', { name: 'Voice / unison' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Oscillator 1 filter type' }), '1')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Oscillator 2 filter type' }), '2')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Polyphony' }), '16')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Unison voices' }), '4')
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Oscillator 2 filter cutoff' }), { key: 'ArrowDown' })
+    fireEvent.keyDown(screen.getByRole('slider', { name: 'Oscillator 2 filter resonance' }), { key: 'ArrowUp' })
+    for (const label of ['LFO pitch depth', 'LFO cutoff depth', 'LFO resonance depth']) {
+      fireEvent.keyDown(screen.getByRole('slider', { name: label }), { key: 'ArrowUp' })
+    }
+    const shape = screen.getByRole('slider', { name: 'Oscillator 1 shape' })
+    expect(shape).toHaveAttribute('aria-valuetext', '0° phase')
+    await user.click(within(screen.getByRole('group', { name: 'Oscillator 1 waveform' })).getByRole('radio', { name: 'Square' }))
+    expect(shape).toHaveAttribute('aria-valuetext', '50% pulse width')
+    fireEvent.keyDown(shape, { key: 'ArrowDown' })
+    expect(shape).toHaveAttribute('aria-valuetext', '49% pulse width')
+    expect(usePatchStore.getState().values).toMatchObject({
+      filterType: 1, filter2Type: 2, filterCutoff: 6000, filter2Cutoff: 5999,
+      filterResonance: 15, filter2Resonance: 16, polyphony: 16, unisonVoices: 4,
+      lfoPitchDepth: 1, lfoFilterDepth: 1, lfoResonanceDepth: 1, osc1Shape: 49, osc2Shape: 50,
+    })
+    await waitFor(() => expect(setParameters).toHaveBeenLastCalledWith(usePatchStore.getState().values))
+    expect(sendParameter).not.toHaveBeenCalled()
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Polyphony' }), { key: 'Delete' })
+    expect(screen.getByRole('combobox', { name: 'Polyphony' })).toHaveDisplayValue('8 notes')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Web synth preset' }), 'round-bass')
+    expect(usePatchStore.getState().values).toEqual(webSynthPresets[2].values)
+    expect(screen.getByRole('combobox', { name: 'Unison voices' })).toHaveDisplayValue('1 voice')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'summit')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+    expect(usePatchStore.getState().values).toEqual(webSynthPresets[2].values)
+  })
+
+  it('provides clickable conceptual help for every web synth parameter without changing the patch', async () => {
+    const user = userEvent.setup()
+    usePatchStore.getState().setActiveProfile('web-synth')
+    render(<App />)
+    const before = { ...usePatchStore.getState().values }
+    for (const parameter of webSynthParameters) {
+      const help = screen.getByLabelText(`${parameter.label} help`)
+      expect(help).toHaveTextContent('?')
+      await user.click(help)
+      expect(screen.getAllByRole('tooltip')).toHaveLength(1)
+      expect(screen.getByRole('tooltip')).toHaveTextContent(webSynthParameterHelp[parameter.id])
+      expect(help).toHaveAccessibleDescription(`${parameter.label} ${webSynthParameterHelp[parameter.id]}`)
+    }
+    expect(usePatchStore.getState().values).toEqual(before)
+    for (const label of ['Web synth preset', 'Audio output', 'Virtual keyboard', 'Keyboard octave', 'Velocity', 'All notes off']) {
+      await user.click(screen.getByLabelText(`${label} help`))
+      expect(screen.getByRole('tooltip')).toHaveTextContent(label)
+    }
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'summit')
+    expect(screen.queryByRole('button', { name: 'Oscillator 1 filter cutoff help' })).not.toBeInTheDocument()
+    expect(document.querySelector('.click-control-tooltip')).not.toBeInTheDocument()
   })
 
   it('starts and releases Web Synth notes with Enter and Space on virtual piano keys', async () => {
@@ -382,7 +478,7 @@ describe('Zinth', () => {
 
   it('renders an offline editor with grouped documented controls', () => {
     render(<App />)
-    expect(screen.getByRole('heading', { name: /summit patch lab/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Zinth - Synth Patch Designer' })).toBeInTheDocument()
     expect(screen.getByText('Offline editor')).toBeInTheDocument()
     expect(screen.getByLabelText('Filter resonance')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /amplifier envelope/i })).toBeInTheDocument()

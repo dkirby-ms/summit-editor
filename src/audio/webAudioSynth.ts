@@ -1,5 +1,6 @@
 import { getEnvelopeStages, scheduleSmoothedValue } from './envelope'
 import { VoiceAllocator } from './voiceAllocator'
+import { applyOscillatorShape } from './oscillatorShape'
 import { webSynthDefaultValues, webSynthParameters } from '../model/webSynthProfile'
 import type { WebSynthParameterId } from '../model/webSynthProfile'
 
@@ -15,20 +16,22 @@ type AudioContextFactory = () => AudioContext
 type VoiceNodes = {
   leaseId: number
   note: number
-  baseFrequency: number
   lfo: OscillatorNode
-  oscillator1: OscillatorNode
-  oscillator2: OscillatorNode
-  filter: BiquadFilterNode
+  oscillators1: OscillatorNode[]
+  oscillators2: OscillatorNode[]
+  oscillator1Gain: GainNode
+  oscillator2Gain: GainNode
+  filters: [BiquadFilterNode, BiquadFilterNode]
   ampGain: GainNode
   pitchModGain1: GainNode
   pitchModGain2: GainNode
-  filterModGain: GainNode
+  cutoffModGains: [GainNode, GainNode]
+  resonanceModGains: [GainNode, GainNode]
   stoppedSources: number
   releasing: boolean
 }
 
-const waveformTypes: OscillatorType[] = ['sine', 'triangle', 'sawtooth', 'square']
+const filterTypes: BiquadFilterType[] = ['lowpass', 'highpass', 'bandpass']
 
 function noteFrequency(note: number) {
   return 440 * 2 ** ((note - 69) / 12)
@@ -39,7 +42,8 @@ function finiteParameterValues(values: Readonly<Record<string, number>>) {
   for (const parameter of webSynthParameters) {
     const value = values[parameter.id]
     if (!Number.isFinite(value)) throw new RangeError(`Parameter ${parameter.id} must be a finite number.`)
-    next[parameter.id] = Math.min(parameter.max, Math.max(parameter.min, value))
+    const clamped = Math.min(parameter.max, Math.max(parameter.min, value))
+    next[parameter.id] = 'valueLabels' in parameter ? Math.round(clamped) : clamped
   }
   return next
 }
@@ -88,17 +92,34 @@ export class WebAudioSynth {
   }
 
   setParameters(values: Readonly<Record<string, number>>) {
+    const previous = this.values
     this.values = finiteParameterValues(values)
+    if (previous.polyphony !== this.values.polyphony || previous.unisonVoices !== this.values.unisonVoices) {
+      this.allNotesOff()
+      this.allocator.resize(this.values.polyphony)
+    }
     if (!this.context || this.snapshot.status !== 'ready') return
     const now = this.context.currentTime
     scheduleSmoothedValue(this.lfo!.frequency, this.values.lfoRate, now)
     for (const voice of this.voices.values()) {
-      voice.oscillator1.type = waveformTypes[this.values.osc1Wave]
-      voice.oscillator2.type = waveformTypes[this.values.osc2Wave]
-      scheduleSmoothedValue(voice.oscillator1.detune, this.values.osc1Detune, now)
-      scheduleSmoothedValue(voice.oscillator2.detune, this.values.osc2Detune, now)
-      scheduleSmoothedValue(voice.filter.frequency, this.values.filterCutoff, now)
-      scheduleSmoothedValue(voice.filter.Q, 0.1 + this.values.filterResonance * 0.2, now)
+      if (voice.releasing) continue
+      if (previous.osc1Wave !== this.values.osc1Wave || previous.osc1Shape !== this.values.osc1Shape) {
+        applyOscillatorShape(this.context, voice.oscillators1, this.values.osc1Wave, this.values.osc1Shape)
+      }
+      if (previous.osc2Wave !== this.values.osc2Wave || previous.osc2Shape !== this.values.osc2Shape) {
+        applyOscillatorShape(this.context, voice.oscillators2, this.values.osc2Wave, this.values.osc2Shape)
+      }
+      scheduleSmoothedValue(voice.oscillator1Gain.gain, 0.5 * this.values.osc1Level / 100 / voice.oscillators1.length, now)
+      scheduleSmoothedValue(voice.oscillator2Gain.gain, 0.5 * this.values.osc2Level / 100 / voice.oscillators2.length, now)
+      this.updateDetune(voice, now)
+      voice.filters.forEach((filter, index) => {
+        filter.type = filterTypes[index === 0 ? this.values.filterType : this.values.filter2Type]
+        const cutoffId = index === 0 ? 'filterCutoff' : 'filter2Cutoff'
+        if (previous[cutoffId] !== this.values[cutoffId]) {
+          scheduleSmoothedValue(filter.frequency, this.filterCutoff(index), now)
+        }
+        scheduleSmoothedValue(filter.Q, this.filterResonance(index), now)
+      })
       this.updateModulationDepth(voice, now)
     }
   }
@@ -131,6 +152,9 @@ export class WebAudioSynth {
     this.allNotesOff()
     if (!this.context || this.context.state === 'closed') return
     await this.context.close()
+    for (const voice of this.voices.values()) this.disconnectVoice(voice)
+    this.voices.clear()
+    this.allocator.resize(this.values.polyphony)
     this.context = null
     this.lfo = null
     this.update({ status: 'idle', error: null })
@@ -153,73 +177,85 @@ export class WebAudioSynth {
     const lfo = this.lfo
     if (!context || !lfo) throw new Error('Audio output is not ready.')
 
-    const oscillator1 = context.createOscillator()
-    const oscillator2 = context.createOscillator()
+    const oscillators1 = Array.from({ length: this.values.unisonVoices }, () => context.createOscillator())
+    const oscillators2 = Array.from({ length: this.values.unisonVoices }, () => context.createOscillator())
     const oscillator1Gain = context.createGain()
     const oscillator2Gain = context.createGain()
-    const filter = context.createBiquadFilter()
+    const filters: [BiquadFilterNode, BiquadFilterNode] = [context.createBiquadFilter(), context.createBiquadFilter()]
     const ampGain = context.createGain()
     const pitchModGain1 = context.createGain()
     const pitchModGain2 = context.createGain()
-    const filterModGain = context.createGain()
+    const cutoffModGains: [GainNode, GainNode] = [context.createGain(), context.createGain()]
+    const resonanceModGains: [GainNode, GainNode] = [context.createGain(), context.createGain()]
     const baseFrequency = noteFrequency(note)
+    for (const gain of [pitchModGain1, pitchModGain2, ...cutoffModGains, ...resonanceModGains]) {
+      gain.gain.setValueAtTime(0, startTime)
+    }
 
-    oscillator1.type = waveformTypes[this.values.osc1Wave]
-    oscillator2.type = waveformTypes[this.values.osc2Wave]
-    oscillator1.frequency.setValueAtTime(baseFrequency, startTime)
-    oscillator2.frequency.setValueAtTime(baseFrequency, startTime)
-    oscillator1.detune.setValueAtTime(this.values.osc1Detune, startTime)
-    oscillator2.detune.setValueAtTime(this.values.osc2Detune, startTime)
-    oscillator1Gain.gain.setValueAtTime(0.5, startTime)
-    oscillator2Gain.gain.setValueAtTime(0.5, startTime)
-    filter.type = 'lowpass'
-    filter.frequency.setValueAtTime(this.values.filterCutoff, startTime)
-    filter.Q.setValueAtTime(0.1 + this.values.filterResonance * 0.2, startTime)
+    applyOscillatorShape(context, oscillators1, this.values.osc1Wave, this.values.osc1Shape)
+    applyOscillatorShape(context, oscillators2, this.values.osc2Wave, this.values.osc2Shape)
+    oscillator1Gain.gain.setValueAtTime(0.5 * this.values.osc1Level / 100 / oscillators1.length, startTime)
+    oscillator2Gain.gain.setValueAtTime(0.5 * this.values.osc2Level / 100 / oscillators2.length, startTime)
+    filters.forEach((filter, index) => {
+      filter.type = filterTypes[index === 0 ? this.values.filterType : this.values.filter2Type]
+      filter.Q.setValueAtTime(this.filterResonance(index), startTime)
+      filter.connect(ampGain)
+      lfo.connect(cutoffModGains[index])
+      lfo.connect(resonanceModGains[index])
+      cutoffModGains[index].connect(filter.frequency)
+      resonanceModGains[index].connect(filter.Q)
+    })
     ampGain.gain.setValueAtTime(0, startTime)
 
-    oscillator1.connect(oscillator1Gain)
-    oscillator2.connect(oscillator2Gain)
-    oscillator1Gain.connect(filter)
-    oscillator2Gain.connect(filter)
-    filter.connect(ampGain)
+    oscillators1.forEach((oscillator) => {
+      oscillator.frequency.setValueAtTime(baseFrequency, startTime)
+      oscillator.connect(oscillator1Gain)
+      pitchModGain1.connect(oscillator.detune)
+    })
+    oscillators2.forEach((oscillator) => {
+      oscillator.frequency.setValueAtTime(baseFrequency, startTime)
+      oscillator.connect(oscillator2Gain)
+      pitchModGain2.connect(oscillator.detune)
+    })
+    oscillator1Gain.connect(filters[0])
+    oscillator2Gain.connect(filters[1])
     ampGain.connect(context.destination)
     lfo.connect(pitchModGain1)
     lfo.connect(pitchModGain2)
-    lfo.connect(filterModGain)
-    pitchModGain1.connect(oscillator1.frequency)
-    pitchModGain2.connect(oscillator2.frequency)
-    filterModGain.connect(filter.frequency)
 
     const voice: VoiceNodes = {
       leaseId,
       note,
-      baseFrequency,
       lfo,
-      oscillator1,
-      oscillator2,
-      filter,
+      oscillators1,
+      oscillators2,
+      oscillator1Gain,
+      oscillator2Gain,
+      filters,
       ampGain,
       pitchModGain1,
       pitchModGain2,
-      filterModGain,
+      cutoffModGains,
+      resonanceModGains,
       stoppedSources: 0,
       releasing: false,
     }
     this.voices.set(leaseId, voice)
+    this.updateDetune(voice, startTime, true)
     this.updateModulationDepth(voice, startTime)
     this.scheduleAttack(voice, velocity, startTime)
 
     const onended = () => {
       voice.stoppedSources += 1
-      if (voice.stoppedSources < 2) return
+      if (voice.stoppedSources < oscillators1.length + oscillators2.length) return
       this.voices.delete(leaseId)
       this.allocator.complete(leaseId)
       this.disconnectVoice(voice)
     }
-    oscillator1.onended = onended
-    oscillator2.onended = onended
-    oscillator1.start(startTime)
-    oscillator2.start(startTime)
+    for (const oscillator of [...oscillators1, ...oscillators2]) {
+      oscillator.onended = onended
+      oscillator.start(startTime)
+    }
   }
 
   private scheduleAttack(voice: VoiceNodes, velocity: number, startTime: number) {
@@ -237,19 +273,21 @@ export class WebAudioSynth {
     )
     voice.ampGain.gain.linearRampToValueAtTime(stages.sustainLevel, stages.decayEnd)
 
-    const filterPeak = Math.min(18000, this.values.filterCutoff + (18000 - this.values.filterCutoff) * this.values.filterEnvelopeAmount / 100)
-    const filterStages = getEnvelopeStages(
-      startTime,
-      filterPeak,
-      this.values.filterAttack,
-      this.values.filterDecay,
-      this.values.filterSustain,
-    )
-    const filterSustainLevel = this.values.filterCutoff
-      + (filterPeak - this.values.filterCutoff) * this.values.filterSustain / 100
-    voice.filter.frequency.setValueAtTime(this.values.filterCutoff, startTime)
-    voice.filter.frequency.linearRampToValueAtTime(filterPeak, filterStages.attackEnd)
-    voice.filter.frequency.linearRampToValueAtTime(filterSustainLevel, filterStages.decayEnd)
+    voice.filters.forEach((filter, index) => {
+      const cutoff = this.filterCutoff(index)
+      const filterPeak = this.filterPeak(index)
+      const filterStages = getEnvelopeStages(
+        startTime,
+        filterPeak,
+        this.values.filterAttack,
+        this.values.filterDecay,
+        this.values.filterSustain,
+      )
+      const filterSustainLevel = cutoff + (filterPeak - cutoff) * this.values.filterSustain / 100
+      filter.frequency.setValueAtTime(cutoff, startTime)
+      filter.frequency.linearRampToValueAtTime(filterPeak, filterStages.attackEnd)
+      filter.frequency.linearRampToValueAtTime(filterSustainLevel, filterStages.decayEnd)
+    })
   }
 
   private releaseVoice(leaseId: number, duration?: number, startTime?: number) {
@@ -265,35 +303,72 @@ export class WebAudioSynth {
 
     voice.ampGain.gain.cancelAndHoldAtTime(now)
     voice.ampGain.gain.linearRampToValueAtTime(0, ampEndTime)
-    voice.filter.frequency.cancelAndHoldAtTime(now)
-    voice.filter.frequency.linearRampToValueAtTime(this.values.filterCutoff, filterEndTime)
+    voice.filters.forEach((filter, index) => {
+      filter.frequency.cancelAndHoldAtTime(now)
+      filter.frequency.linearRampToValueAtTime(this.filterCutoff(index), filterEndTime)
+    })
     const stopTime = Math.max(ampEndTime, filterEndTime) + 0.005
-    voice.oscillator1.stop(stopTime)
-    voice.oscillator2.stop(stopTime)
+    for (const oscillator of [...voice.oscillators1, ...voice.oscillators2]) oscillator.stop(stopTime)
+  }
+
+  private filterCutoff(index: number) {
+    return Math.min(this.maxCutoff, index === 0 ? this.values.filterCutoff : this.values.filter2Cutoff)
+  }
+
+  private filterResonance(index: number) {
+    return 0.1 + (index === 0 ? this.values.filterResonance : this.values.filter2Resonance) * 0.2
+  }
+
+  private get maxCutoff() {
+    return Math.min(18000, (this.context?.sampleRate ?? 44100) / 2)
+  }
+
+  private filterPeak(index: number) {
+    const cutoff = this.filterCutoff(index)
+    return Math.min(this.maxCutoff, cutoff + (this.maxCutoff - cutoff) * this.values.filterEnvelopeAmount / 100)
+  }
+
+  private updateDetune(voice: VoiceNodes, now: number, immediate = false) {
+    for (const [index, oscillators] of [voice.oscillators1, voice.oscillators2].entries()) {
+      oscillators.forEach((oscillator, copy) => {
+        const spread = oscillators.length === 1 ? 0 : (2 * copy / (oscillators.length - 1) - 1) * this.values.unisonDetune
+        const detune = (index === 0 ? this.values.osc1Detune : this.values.osc2Detune) + spread
+        if (immediate) oscillator.detune.setValueAtTime(detune, now)
+        else scheduleSmoothedValue(oscillator.detune, detune, now)
+      })
+    }
   }
 
   private updateModulationDepth(voice: VoiceNodes, now: number) {
-    const centsToHz = voice.baseFrequency * (2 ** (this.values.lfoPitchDepth / 1200) - 1)
-    scheduleSmoothedValue(voice.pitchModGain1.gain, centsToHz, now)
-    scheduleSmoothedValue(voice.pitchModGain2.gain, centsToHz, now)
-    scheduleSmoothedValue(
-      voice.filterModGain.gain,
-      this.values.filterCutoff * this.values.lfoFilterDepth / 100,
-      now,
-    )
+    scheduleSmoothedValue(voice.pitchModGain1.gain, this.values.lfoPitchDepth, now)
+    scheduleSmoothedValue(voice.pitchModGain2.gain, this.values.lfoPitchDepth, now)
+    voice.filters.forEach((_, index) => {
+      const cutoff = this.filterCutoff(index)
+      const cutoffHeadroom = Math.max(0, Math.min(cutoff, this.maxCutoff - this.filterPeak(index)))
+      scheduleSmoothedValue(voice.cutoffModGains[index].gain, cutoffHeadroom * this.values.lfoFilterDepth / 100, now)
+      const resonance = this.filterResonance(index)
+      const resonanceHeadroom = Math.max(0, Math.min(resonance - 0.1, 20.1 - resonance))
+      scheduleSmoothedValue(voice.resonanceModGains[index].gain, resonanceHeadroom * this.values.lfoResonanceDepth / 100, now)
+    })
   }
 
   private disconnectVoice(voice: VoiceNodes) {
     voice.lfo.disconnect(voice.pitchModGain1)
     voice.lfo.disconnect(voice.pitchModGain2)
-    voice.lfo.disconnect(voice.filterModGain)
-    voice.oscillator1.disconnect()
-    voice.oscillator2.disconnect()
-    voice.filter.disconnect()
+    for (const gain of [...voice.cutoffModGains, ...voice.resonanceModGains]) {
+      voice.lfo.disconnect(gain)
+      gain.disconnect()
+    }
+    for (const oscillator of [...voice.oscillators1, ...voice.oscillators2]) {
+      oscillator.onended = null
+      oscillator.disconnect()
+    }
+    voice.oscillator1Gain.disconnect()
+    voice.oscillator2Gain.disconnect()
+    voice.filters.forEach((filter) => filter.disconnect())
     voice.ampGain.disconnect()
     voice.pitchModGain1.disconnect()
     voice.pitchModGain2.disconnect()
-    voice.filterModGain.disconnect()
   }
 }
 

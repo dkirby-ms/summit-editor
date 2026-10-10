@@ -9,7 +9,7 @@ describe('synth profiles', () => {
     expect(synthProfileIds.webSynth).toBe('web-synth')
     expect(summitProfile.name).toBe('Novation Summit')
     expect(synthProfileById.get(synthProfileIds.summit)).toBe(summitProfile)
-    expect(synthProfiles).toEqual([summitProfile, webSynthProfile])
+    expect(synthProfiles).toEqual([webSynthProfile, summitProfile])
   })
 
   it('allows profile parameter definitions without hardware addresses', () => {
