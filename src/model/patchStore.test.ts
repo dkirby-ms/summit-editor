@@ -17,6 +17,13 @@ describe('patch store', () => {
     },
   }))
 
+  it('defaults to the built-in Web Synth profile', () => {
+    const store = createPatchStore()
+
+    expect(store.getState().activeProfileId).toBe(webSynthProfile.id)
+    expect(store.getState().values).toEqual(webSynthProfile.defaultValues)
+  })
+
   it('clamps updates to the registered parameter range', () => {
     usePatchStore.getState().setValue('osc1Wave', 20)
     expect(usePatchStore.getState().values.osc1Wave).toBe(4)

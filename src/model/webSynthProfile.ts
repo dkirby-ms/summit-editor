@@ -4,8 +4,10 @@ import type { SynthPreset } from './profiles'
 export const webSynthParameters = [
   { id: 'osc1Wave', section: 'Oscillator 1', label: 'Oscillator 1 waveform', shortLabel: 'Wave', min: 0, max: 3, defaultValue: 2, valueLabels: ['Sine', 'Triangle', 'Sawtooth', 'Square'] },
   { id: 'osc1Detune', section: 'Oscillator 1', label: 'Oscillator 1 detune', shortLabel: 'Detune', min: -100, max: 100, defaultValue: 0, displayOffset: 0 },
+  { id: 'osc1Level', section: 'Mixer', label: 'Oscillator 1 level', shortLabel: 'Osc 1', min: 0, max: 100, defaultValue: 100 },
   { id: 'osc2Wave', section: 'Oscillator 2', label: 'Oscillator 2 waveform', shortLabel: 'Wave', min: 0, max: 3, defaultValue: 2, valueLabels: ['Sine', 'Triangle', 'Sawtooth', 'Square'] },
   { id: 'osc2Detune', section: 'Oscillator 2', label: 'Oscillator 2 detune', shortLabel: 'Detune', min: -100, max: 100, defaultValue: 7, displayOffset: 0 },
+  { id: 'osc2Level', section: 'Mixer', label: 'Oscillator 2 level', shortLabel: 'Osc 2', min: 0, max: 100, defaultValue: 100 },
   { id: 'filterCutoff', section: 'Filter', label: 'Filter cutoff', shortLabel: 'Cutoff', min: 100, max: 12000, defaultValue: 6000 },
   { id: 'filterResonance', section: 'Filter', label: 'Filter resonance', shortLabel: 'Resonance', min: 0, max: 100, defaultValue: 15 },
   { id: 'filterEnvelopeAmount', section: 'Filter', label: 'Filter envelope amount', shortLabel: 'Envelope amount', min: 0, max: 100, defaultValue: 35 },
@@ -24,6 +26,29 @@ export const webSynthParameters = [
 
 export type WebSynthParameterId = (typeof webSynthParameters)[number]['id']
 
+export const webSynthParameterHelp = {
+  osc1Wave: 'Choose the repeating wave that generates oscillator 1 sound. A sine has only the fundamental frequency; triangle adds gentle odd harmonics, sawtooth adds odd and even harmonics, and square emphasizes odd harmonics. Harmonics are overtones that give a sound its tone color, or timbre.',
+  osc2Wave: 'Choose the repeating wave that generates oscillator 2 sound. Sine is pure, triangle is mellow, sawtooth is bright, and square is hollow. Their different mixtures of harmonics (overtones) change the timbre; blending two waveforms creates richer sounds.',
+  osc1Detune: 'Shift oscillator 1 pitch above or below the played note in cents. There are 100 cents in a semitone. Small tuning differences between oscillators create beating, a slow pulsing interference that can make the sound feel thicker.',
+  osc2Detune: 'Shift oscillator 2 pitch above or below the played note in cents (100 cents per semitone). A small difference from oscillator 1 creates beating and a chorus-like thickness; matching their tuning gives a steadier blend.',
+  osc1Level: 'Set how much oscillator 1 contributes to the mix before the filter. Mixing adds sound sources together: reduce this level to favor oscillator 2, or set it to zero to silence oscillator 1.',
+  osc2Level: 'Set how much oscillator 2 contributes to the mix before the filter. Blending oscillators combines their harmonics and tuning differences. Set this level to zero to hear oscillator 1 alone.',
+  filterCutoff: 'Set the low-pass filter cutoff in hertz (cycles per second). The filter reduces frequencies above this point, removing higher harmonics. Lower cutoff sounds darker; higher cutoff sounds brighter. The filter envelope and LFO can move this frequency.',
+  filterResonance: 'Emphasize frequencies near the filter cutoff. Resonance adds a pronounced peak to the filter response, producing a more ringing or vowel-like tone. Higher values make cutoff movements more noticeable and can sound sharper.',
+  filterEnvelopeAmount: 'Set how far the filter envelope raises cutoff above its base value. An envelope is a one-time shape triggered by each note, unlike a repeating LFO. At zero, the filter ADSR has no effect; higher amounts create stronger changes in brightness.',
+  ampAttack: 'Set the time in milliseconds for a new note to rise from silence to its peak volume. Attack is the first stage of the ADSR (attack, decay, sustain, release) envelope. Short attack is immediate; long attack fades in.',
+  ampDecay: 'Set the time in milliseconds for volume to fall from the attack peak to the sustain level. Decay is the second ADSR stage. Short decay gives a quick drop; longer decay creates a more gradual settling of the note.',
+  ampSustain: 'Set the volume held after attack and decay while the key remains pressed, as a percentage of peak volume. Sustain is a level, not a duration. Low sustain gives a fading or plucked character; high sustain keeps the note strong.',
+  ampRelease: 'Set the time in milliseconds for volume to fade to silence after you release the key. Release is the last ADSR stage. Short release stops sharply; long release lets the sound trail off.',
+  filterAttack: 'Set the time in milliseconds for cutoff to rise from its base value to the filter envelope peak when a note starts. This ADSR stage opens the filter, making the note brighten gradually. Envelope amount determines how far cutoff moves.',
+  filterDecay: 'Set the time in milliseconds for cutoff to fall from the filter envelope peak to its sustain position. This ADSR stage lets the initial brightness settle into a darker held tone. Envelope amount must be above zero to hear the change.',
+  filterSustain: 'Set the held filter envelope position as a percentage of its excursion above base cutoff. Sustain is a level, not a time: zero returns to base cutoff, and 100 holds the envelope peak. Envelope amount determines the size of that excursion.',
+  filterRelease: 'Set the time in milliseconds for cutoff to return to its base value after key release. The filter envelope controls brightness rather than volume. Its closing movement is audible only while the amplifier envelope still lets sound through.',
+  lfoRate: 'Set how many cycles per second the low-frequency oscillator (LFO) repeats. An LFO modulates other controls instead of acting as an audible sound source. Slow rates create gentle movement; faster rates create rapid pitch or brightness pulsation.',
+  lfoPitchDepth: 'Set the strength of the LFO pitch movement, scaled in cents (100 cents per semitone). Repeating pitch modulation creates vibrato on both oscillators. Zero leaves pitch steady; larger depths produce more pronounced wobble.',
+  lfoFilterDepth: 'Set how strongly the LFO moves cutoff, as a percentage of base cutoff. Repeating filter modulation creates a rhythmic change in brightness, often called a filter sweep or wah effect. Zero disables this movement; rate controls its speed.',
+} satisfies Record<WebSynthParameterId, string>
+
 export const webSynthDefaultValues = Object.fromEntries(
   webSynthParameters.map((parameter) => [parameter.id, parameter.defaultValue]),
 ) as Record<WebSynthParameterId, number>
@@ -36,6 +61,8 @@ export const webSynthPresets = [
       ...webSynthDefaultValues,
       osc1Wave: 1,
       osc2Wave: 2,
+      osc1Level: 85,
+      osc2Level: 60,
       osc2Detune: 12,
       filterCutoff: 3200,
       filterResonance: 20,
@@ -60,6 +87,8 @@ export const webSynthPresets = [
       ...webSynthDefaultValues,
       osc1Wave: 2,
       osc2Wave: 3,
+      osc1Level: 80,
+      osc2Level: 55,
       osc2Detune: 5,
       filterCutoff: 7200,
       filterResonance: 32,
@@ -84,6 +113,8 @@ export const webSynthPresets = [
       ...webSynthDefaultValues,
       osc1Wave: 2,
       osc2Wave: 0,
+      osc1Level: 100,
+      osc2Level: 45,
       osc2Detune: -12,
       filterCutoff: 950,
       filterResonance: 18,

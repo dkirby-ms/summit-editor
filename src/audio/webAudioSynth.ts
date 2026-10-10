@@ -19,6 +19,8 @@ type VoiceNodes = {
   lfo: OscillatorNode
   oscillator1: OscillatorNode
   oscillator2: OscillatorNode
+  oscillator1Gain: GainNode
+  oscillator2Gain: GainNode
   filter: BiquadFilterNode
   ampGain: GainNode
   pitchModGain1: GainNode
@@ -50,6 +52,7 @@ export class WebAudioSynth {
   private readonly listeners = new Set<() => void>()
   private readonly contextFactory: AudioContextFactory
   private context: AudioContext | null = null
+  private analyser: AnalyserNode | null = null
   private lfo: OscillatorNode | null = null
   private values: Record<WebSynthParameterId, number> = { ...webSynthDefaultValues }
   private snapshot: AudioSnapshot = { status: 'idle', error: null }
@@ -77,6 +80,11 @@ export class WebAudioSynth {
       this.context ??= this.contextFactory()
       if (this.context.state !== 'running') await this.context.resume()
       if (this.context.state !== 'running') throw new Error('AudioContext did not enter the running state.')
+      if (!this.analyser) {
+        this.analyser = this.context.createAnalyser()
+        this.analyser.fftSize = 512
+        this.analyser.connect(this.context.destination)
+      }
       this.startLfo()
       this.update({ status: 'ready', error: null })
       return true
@@ -95,6 +103,8 @@ export class WebAudioSynth {
     for (const voice of this.voices.values()) {
       voice.oscillator1.type = waveformTypes[this.values.osc1Wave]
       voice.oscillator2.type = waveformTypes[this.values.osc2Wave]
+      scheduleSmoothedValue(voice.oscillator1Gain.gain, 0.5 * this.values.osc1Level / 100, now)
+      scheduleSmoothedValue(voice.oscillator2Gain.gain, 0.5 * this.values.osc2Level / 100, now)
       scheduleSmoothedValue(voice.oscillator1.detune, this.values.osc1Detune, now)
       scheduleSmoothedValue(voice.oscillator2.detune, this.values.osc2Detune, now)
       scheduleSmoothedValue(voice.filter.frequency, this.values.filterCutoff, now)
@@ -132,12 +142,19 @@ export class WebAudioSynth {
     if (!this.context || this.context.state === 'closed') return
     await this.context.close()
     this.context = null
+    this.analyser = null
     this.lfo = null
     this.update({ status: 'idle', error: null })
   }
 
   get activeVoiceCount() {
     return this.allocator.activeCount
+  }
+
+  getWaveformData(samples: Uint8Array<ArrayBuffer>) {
+    if (!this.analyser || this.snapshot.status !== 'ready') return false
+    this.analyser.getByteTimeDomainData(samples)
+    return true
   }
 
   private startLfo() {
@@ -170,8 +187,8 @@ export class WebAudioSynth {
     oscillator2.frequency.setValueAtTime(baseFrequency, startTime)
     oscillator1.detune.setValueAtTime(this.values.osc1Detune, startTime)
     oscillator2.detune.setValueAtTime(this.values.osc2Detune, startTime)
-    oscillator1Gain.gain.setValueAtTime(0.5, startTime)
-    oscillator2Gain.gain.setValueAtTime(0.5, startTime)
+    oscillator1Gain.gain.setValueAtTime(0.5 * this.values.osc1Level / 100, startTime)
+    oscillator2Gain.gain.setValueAtTime(0.5 * this.values.osc2Level / 100, startTime)
     filter.type = 'lowpass'
     filter.frequency.setValueAtTime(this.values.filterCutoff, startTime)
     filter.Q.setValueAtTime(0.1 + this.values.filterResonance * 0.2, startTime)
@@ -182,7 +199,7 @@ export class WebAudioSynth {
     oscillator1Gain.connect(filter)
     oscillator2Gain.connect(filter)
     filter.connect(ampGain)
-    ampGain.connect(context.destination)
+    ampGain.connect(this.analyser ?? context.destination)
     lfo.connect(pitchModGain1)
     lfo.connect(pitchModGain2)
     lfo.connect(filterModGain)
@@ -197,6 +214,8 @@ export class WebAudioSynth {
       lfo,
       oscillator1,
       oscillator2,
+      oscillator1Gain,
+      oscillator2Gain,
       filter,
       ampGain,
       pitchModGain1,

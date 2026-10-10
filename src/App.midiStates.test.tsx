@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MidiSnapshot, MidiStatus } from './midi/midiEngine'
 
 const mockedUseMidi = vi.hoisted(() => vi.fn())
@@ -9,6 +9,7 @@ vi.mock('./midi/useMidi', () => ({ useMidi: mockedUseMidi }))
 
 import App from './App'
 import { midiEngine } from './midi/midiEngine'
+import { usePatchStore } from './model/patchStore'
 
 const baseSnapshot: MidiSnapshot = {
   status: 'idle',
@@ -27,6 +28,8 @@ function renderStatus(status: MidiStatus, error: string | null = null) {
 }
 
 describe('MIDI capability states', () => {
+  beforeEach(() => usePatchStore.getState().setActiveProfile('summit'))
+
   afterEach(() => {
     cleanup()
     mockedUseMidi.mockReset()

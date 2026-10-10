@@ -35,6 +35,7 @@ for (const { width, height, maxPageHeight } of viewports) {
     const page = await browser.newPage({ viewport: { width, height } })
     try {
       await page.goto(baseUrl)
+      await page.getByRole('combobox', { name: 'Synth profile' }).selectOption('summit')
       await page.evaluate(() => document.fonts.ready)
       const verifyLayout = async () => {
         const layout = await page.evaluate(() => {
@@ -174,6 +175,7 @@ test('compact knobs preserve keyboard and pointer editing', async () => {
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } })
   try {
     await page.goto(baseUrl)
+    await page.getByRole('combobox', { name: 'Synth profile' }).selectOption('summit')
     const knob = page.getByRole('slider', { name: 'Oscillator 1 coarse tuning', exact: true })
     await knob.focus()
     await knob.press('ArrowUp')
@@ -203,6 +205,7 @@ test('control help appears on hover and focus and dismisses on Escape', async ()
   const page = await browser.newPage({ viewport: { width: 1366, height: 768 } })
   try {
     await page.goto(baseUrl)
+    await page.getByRole('combobox', { name: 'Synth profile' }).selectOption('summit')
     await page.locator('#filterShape').selectOption('3')
     const help = page.getByRole('button', { name: 'Dual filter help', exact: true })
     const tooltip = page.getByRole('tooltip').filter({ hasText: 'runs in series' })
@@ -220,6 +223,141 @@ test('control help appears on hover and focus and dismisses on Escape', async ()
     await page.getByRole('slider', { name: 'Filter frequency', exact: true }).focus()
     await help.focus()
     assert.equal(await tooltip.isVisible(), true)
+  } finally {
+    await page.close()
+  }
+})
+
+test('Web Synth envelope controls sit beside their graphs and show the live output scope', async () => {
+  const page = await browser.newPage({ viewport: { width: 1366, height: 768 } })
+  try {
+    await page.goto(baseUrl)
+    const envelope = page.getByRole('region', { name: 'Amp envelope', exact: true })
+    const layout = await envelope.locator('.web-envelope-layout').evaluate((element) => {
+      const controls = element.querySelector('.envelope-controls').getBoundingClientRect()
+      const graph = element.querySelector('.web-envelope-graph').getBoundingClientRect()
+      const sliderHeights = [...element.querySelectorAll('.envelope-controls input[type="range"]')]
+        .map((slider) => slider.getBoundingClientRect().height)
+      return {
+        controlsRight: controls.right,
+        graphLeft: graph.left,
+        controlsWidth: controls.width,
+        graphWidth: graph.width,
+        controlsHeight: controls.height,
+        graphHeight: graph.height,
+        sliderHeights,
+        controlsCenterY: controls.top + controls.height / 2,
+        graphCenterY: graph.top + graph.height / 2,
+      }
+    })
+
+    assert.ok(layout.graphLeft >= layout.controlsRight)
+    assert.ok(layout.graphWidth > layout.controlsWidth)
+    assert.ok(layout.controlsHeight >= 150)
+    assert.ok(layout.graphHeight >= 160)
+    assert.ok(layout.sliderHeights.every((height) => height >= 115))
+    assert.ok(Math.abs(layout.controlsCenterY - layout.graphCenterY) < 2)
+    assert.equal(await page.getByRole('img', { name: 'Live audio output waveform' }).isVisible(), true)
+    const mixer = page.getByRole('region', { name: 'Mixer', exact: true })
+    const mixerBounds = await mixer.boundingBox()
+    assert.ok(mixerBounds && mixerBounds.width <= 150, 'Web Synth mixer must have a narrow profile')
+    for (const oscillator of [1, 2]) {
+      const level = mixer.getByRole('slider', { name: `Oscillator ${oscillator} level` })
+      const bounds = await level.boundingBox()
+      assert.ok(bounds && bounds.width >= 24 && bounds.width <= 32 && bounds.height >= 115)
+      assert.equal(await level.getAttribute('aria-orientation'), 'vertical')
+    }
+  } finally {
+    await page.close()
+  }
+})
+
+test('Web Synth panels align compactly and graphical waveform radios work with the keyboard', async () => {
+  const page = await browser.newPage()
+  try {
+    for (const { width, height } of viewports) {
+      await page.setViewportSize({ width, height })
+      await page.goto(baseUrl)
+      await page.evaluate(() => document.fonts.ready)
+      await page.waitForFunction(() => {
+        const keybed = document.querySelector('.piano-bed')
+        return keybed && keybed.scrollWidth <= keybed.clientWidth
+      })
+
+      const layout = await page.evaluate(() => {
+        const panels = [...document.querySelectorAll('.web-synth-signal-grid > section')]
+          .map((panel) => {
+            const bounds = panel.getBoundingClientRect()
+            return { top: bounds.top, bottom: bounds.bottom, left: bounds.left, right: bounds.right }
+          })
+        return {
+          pageWidth: document.documentElement.scrollWidth,
+          panels,
+          overflow: [...document.querySelectorAll('body *')]
+            .filter((element) => element.getBoundingClientRect().right > window.innerWidth + 1)
+            .map((element) => element.id || element.getAttribute('class') || element.tagName),
+          clipped: [...document.querySelectorAll('.web-synth-control, .waveform-option')]
+            .filter((element) => element.scrollWidth > element.clientWidth + 1)
+            .map((element) => element.textContent),
+        }
+      })
+      assert.ok(layout.pageWidth <= width, `Web Synth overflows at ${width}px: ${JSON.stringify(layout)}`)
+      assert.deepEqual(layout.clipped, [], `Controls clipped at ${width}px`)
+      if (width > 1200) {
+        for (const panel of layout.panels) {
+          assert.equal(panel.top, layout.panels[0].top, 'Signal panels must share a top edge')
+          assert.equal(panel.bottom, layout.panels[0].bottom, 'Signal panels must share a bottom edge')
+        }
+        for (let index = 1; index < layout.panels.length; index++) {
+          assert.ok(layout.panels[index].left - layout.panels[index - 1].right <= 9, 'No unused mixer grid space')
+        }
+      }
+    }
+    const oscillator1 = page.getByRole('group', { name: 'Oscillator 1 waveform', exact: true })
+    const oscillator2 = page.getByRole('group', { name: 'Oscillator 2 waveform', exact: true })
+    await oscillator1.getByRole('radio', { name: 'Sawtooth' }).focus()
+    await page.keyboard.press('ArrowRight')
+    assert.equal(await oscillator1.getByRole('radio', { name: 'Square' }).isChecked(), true)
+    assert.equal(await oscillator2.getByRole('radio', { name: 'Sawtooth' }).isChecked(), true)
+    await page.keyboard.press('Delete')
+    assert.equal(await oscillator1.getByRole('radio', { name: 'Sawtooth' }).isChecked(), true)
+  } finally {
+    await page.close()
+  }
+})
+
+test('Web Synth help is keyboard operable and stays within every viewport', async () => {
+  const page = await browser.newPage()
+  try {
+    for (const { width, height } of viewports) {
+      await page.setViewportSize({ width, height })
+      await page.goto(baseUrl)
+      const helps = page.locator('.click-control-help')
+      assert.equal(await helps.count(), 26)
+      for (const help of await helps.all()) {
+        await help.scrollIntoViewIfNeeded()
+        await help.focus()
+        assert.equal(await page.getByRole('tooltip').count(), 0, 'Focus alone must not open help')
+        await page.keyboard.press('Enter')
+        const tooltip = page.getByRole('tooltip')
+        await tooltip.waitFor({ state: 'visible' })
+        const bounds = await tooltip.boundingBox()
+        assert.ok(bounds && bounds.x >= 0 && bounds.y >= 0
+          && bounds.x + bounds.width <= width && bounds.y + bounds.height <= height,
+        `Help must fit at ${width}px: ${JSON.stringify(bounds)}`)
+        const target = await help.boundingBox()
+        assert.ok(target && target.width >= 24 && target.height >= 24, 'Help target must be at least 24px')
+        await page.keyboard.press('Escape')
+        assert.equal(await tooltip.count(), 0)
+        assert.equal(await help.evaluate((element) => element === document.activeElement), true)
+      }
+    }
+    const help = page.getByRole('button', { name: 'Filter cutoff help', exact: true })
+    await help.click()
+    await page.getByRole('button', { name: 'Filter resonance help', exact: true }).click()
+    assert.equal(await page.getByRole('tooltip').count(), 1)
+    await page.getByRole('heading', { name: 'Built-in Web Synth', exact: true }).click()
+    assert.equal(await page.getByRole('tooltip').count(), 0)
   } finally {
     await page.close()
   }

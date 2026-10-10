@@ -1,12 +1,13 @@
 ---
 title: Zinth
-description: Browser-based patch editor for Novation Summit, with more synths planned.
+description: Browser-based synth patch designer with a built-in Web Synth and optional Novation Summit MIDI support.
 ---
 
 # Zinth
 
-A browser-based patch editor, currently for Novation Summit. Connect over Web MIDI to edit supported
-controls, use the virtual keyboard, and transfer patch files.
+A browser-based synth patch designer with a built-in Web Synth selected by default. Connect to
+Novation Summit over Web MIDI to edit supported controls and transfer patch files, or use the
+virtual keyboard with either synth profile.
 
 ## Start
 
@@ -33,6 +34,13 @@ Supported control changes are sent to the synth and reflected in the editor.
 
 ## Basics
 
+- Click the `?` beside a Web Synth control to learn what it changes and the
+  synthesis concept behind it. You can also focus the help button and press
+  Enter or Space. Press Escape, click elsewhere, or click `?` again to dismiss.
+- Select oscillator waveforms using the shape buttons in Web Synth. Use Tab to focus
+  a waveform group and arrow keys to change its selection.
+- Blend the oscillators with the mixer sliders. The envelope graphs sit beside
+  their ADSR sliders, and the output waveform shows the resulting audio.
 - Use the panel sections to edit synth controls. Changes are sent as you make them.
 - The modulation matrix has 16 slots. Its assignment mapping is community-documented
   and should be verified with your hardware.

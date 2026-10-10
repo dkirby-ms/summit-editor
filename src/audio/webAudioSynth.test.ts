@@ -20,6 +20,11 @@ function createAudioParam() {
 function createAudioContext() {
   let state: AudioContextState = 'suspended'
   const modulationConnections = new Set<unknown>()
+  const analyser = {
+    fftSize: 0,
+    connect: vi.fn(),
+    getByteTimeDomainData: vi.fn((samples: Uint8Array) => samples.fill(192)),
+  }
   const oscillators: Array<{
     frequency: AudioParam
     detune: AudioParam
@@ -30,7 +35,8 @@ function createAudioContext() {
     connect: ReturnType<typeof vi.fn>
     disconnect: ReturnType<typeof vi.fn>
   }> = []
-  const gains: Array<{ gain: ReturnType<typeof createAudioParam> }> = []
+  const gains: Array<{ gain: ReturnType<typeof createAudioParam>; connect: ReturnType<typeof vi.fn> }> = []
+  const gainNodes: Array<{ connect: ReturnType<typeof vi.fn> }> = []
   const filters: Array<{ frequency: ReturnType<typeof createAudioParam>; Q: ReturnType<typeof createAudioParam> }> = []
   const context = {
     currentTime: 1,
@@ -38,6 +44,7 @@ function createAudioContext() {
     destination: { connect: vi.fn(), disconnect: vi.fn() },
     resume: vi.fn(async () => { state = 'running' }),
     close: vi.fn(async () => { state = 'closed' }),
+    createAnalyser: vi.fn(() => analyser),
     createOscillator: vi.fn(() => {
       const isLfo = oscillators.length === 0
       const oscillator = {
@@ -66,7 +73,8 @@ function createAudioContext() {
         connect: vi.fn(),
         disconnect: vi.fn(),
       }
-      gains.push({ gain: gainParam })
+      gains.push({ gain: gainParam, connect: gain.connect })
+      gainNodes.push(gain)
       return gain
     }),
     createBiquadFilter: vi.fn(() => {
@@ -83,7 +91,7 @@ function createAudioContext() {
       return filter
     }),
   } as unknown as AudioContext
-  return { context, oscillators, gains, filters, modulationConnections }
+  return { context, oscillators, gains, gainNodes, filters, modulationConnections, analyser }
 }
 
 describe('Web Audio synth', () => {
@@ -101,6 +109,35 @@ describe('Web Audio synth', () => {
     expect(synth.noteOn(72)).toBe(true)
     expect(synth.activeVoiceCount).toBe(8)
     expect(oscillators.filter((oscillator) => oscillator.start.mock.calls.length > 0)).toHaveLength(19)
+  })
+
+  it('routes the mixed output through an analyser and exposes waveform samples', async () => {
+    const { context, gainNodes, analyser } = createAudioContext()
+    const synth = new WebAudioSynth(() => context)
+    const samples = new Uint8Array(4)
+
+    expect(synth.getWaveformData(samples)).toBe(false)
+    await synth.start()
+    synth.noteOn(60)
+
+    expect(analyser.fftSize).toBe(512)
+    expect(analyser.connect).toHaveBeenCalledWith(context.destination)
+    expect(gainNodes[2].connect).toHaveBeenCalledWith(analyser)
+    expect(synth.getWaveformData(samples)).toBe(true)
+    expect(samples).toEqual(new Uint8Array([192, 192, 192, 192]))
+  })
+
+  it('mixes oscillators independently and smooths active voice level changes', async () => {
+    const { context, gains } = createAudioContext()
+    const synth = new WebAudioSynth(() => context)
+    await synth.start()
+    synth.noteOn(60)
+    const next = { ...webSynthDefaultValues, osc1Level: 0, osc2Level: 40 }
+
+    synth.setParameters(next)
+
+    expect(gains[0].gain.audioParam.setTargetAtTime).toHaveBeenCalledWith(0, 1, 0.02)
+    expect(gains[1].gain.audioParam.setTargetAtTime).toHaveBeenCalledWith(0.2, 1, 0.02)
   })
 
   it('schedules release for note-off and a short release for panic', async () => {
