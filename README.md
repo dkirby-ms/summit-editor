@@ -40,7 +40,20 @@ Supported control changes are sent to the synth and reflected in the editor.
 - Select oscillator waveforms using the shape buttons in Web Synth. Use Tab to focus
   a waveform group and arrow keys to change its selection.
 - Blend the oscillators with the mixer sliders. The envelope graphs sit beside
-  their ADSR sliders, and the output waveform shows the resulting audio.
+  their ADSR sliders.
+- Give each oscillator its own LP (low-pass), HP (high-pass), or BP (band-pass)
+  filter with independent cutoff and resonance. The filter envelope is shared,
+  but each filter moves relative to its own cutoff.
+- Set LFO pitch, cutoff, and resonance depths independently. Zero disables an
+  assignment; multiple destinations can be active together.
+- Use Voice / unison to select 1-16 simultaneous notes and 1-4 detuned copies of
+  each oscillator per note. Spread sets the outer copies' detune in cents.
+  Changing either voice count releases sounding notes; full polyphony steals
+  the oldest note. Unison levels are normalized.
+- Use oscillator Shape for square-wave pulse width (1-99%, 50% for square), or
+  phase offset for sine, triangle, and sawtooth (50% is neutral). Phase changes
+  are most audible when mixing oscillators at matching pitches; they do not
+  change pitch. Pulse width is adjustable, but not LFO-modulated.
 - Use the panel sections to edit synth controls. Changes are sent as you make them.
 - The modulation matrix has 16 slots. Its assignment mapping is community-documented
   and should be verified with your hardware.

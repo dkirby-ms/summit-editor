@@ -159,6 +159,7 @@ const waveformShapes = [
 
 function WebSynthParameterControl({ parameter, vertical = false }: { parameter: WebSynthParameter; vertical?: boolean }) {
   const value = usePatchStore((state) => state.values[parameter.id])
+  const shapeWaveform = usePatchStore((state) => state.values[parameter.id === 'osc1Shape' ? 'osc1Wave' : 'osc2Wave'])
   const setValue = usePatchStore((state) => state.setValue)
 
   function update(nextValue: number) {
@@ -166,19 +167,26 @@ function WebSynthParameterControl({ parameter, vertical = false }: { parameter: 
   }
 
   const valueLabels = 'valueLabels' in parameter ? parameter.valueLabels : undefined
-  const valueText = getWebSynthValueText(parameter, value)
+  const isWaveform = parameter.id === 'osc1Wave' || parameter.id === 'osc2Wave'
+  const valueText = parameter.id.endsWith('Shape')
+    ? shapeWaveform === 3 ? `${value}% pulse width` : `${Math.round((value - 50) * 3.6)}° phase`
+    : getWebSynthValueText(parameter, value)
   return (
-    <div className={`parameter-control web-synth-control${valueLabels ? ' web-waveform-control' : ''}`} onDoubleClick={() => update(parameter.defaultValue)} onKeyDown={(event) => {
+    <div className={`parameter-control web-synth-control${isWaveform ? ' web-waveform-control' : ''}`} onDoubleClick={() => update(parameter.defaultValue)} onKeyDown={(event) => {
       if (event.key !== 'Delete') return
       event.preventDefault()
       update(parameter.defaultValue)
     }}>
       <div className="parameter-heading">
-        <label htmlFor={vertical ? `web-${parameter.id}` : undefined}>{parameter.shortLabel}</label>
+        <label htmlFor={vertical || (valueLabels && !isWaveform) ? `web-${parameter.id}` : undefined}>{parameter.shortLabel}</label>
         <ClickControlHelp label={parameter.label} text={webSynthParameterHelp[parameter.id]} />
         {(valueLabels || vertical) && <output>{valueText}</output>}
       </div>
-      {valueLabels ? (
+      {valueLabels && !isWaveform ? (
+        <select id={`web-${parameter.id}`} value={value} aria-label={parameter.label} aria-description="Double-click or press Delete to restore the default." onChange={(event) => update(Number(event.target.value))}>
+          {valueLabels.map((label, index) => <option key={label} value={parameter.min + index}>{label}</option>)}
+        </select>
+      ) : valueLabels ? (
         <fieldset className="waveform-options" aria-label={parameter.label}>
           {valueLabels.map((label, index) => (
             <label key={label} className="waveform-option">
@@ -208,11 +216,11 @@ function WebSynthParameterControl({ parameter, vertical = false }: { parameter: 
 }
 
 function getWebSynthValueText(parameter: WebSynthParameter, value: number) {
-  if ('valueLabels' in parameter) return parameter.valueLabels[value]
-  if (parameter.id === 'filterCutoff') return `${value} Hz`
-  if (parameter.id === 'osc1Detune' || parameter.id === 'osc2Detune' || parameter.id === 'lfoPitchDepth') return `${value} cents`
+  if ('valueLabels' in parameter) return parameter.valueLabels[value - parameter.min]
+  if (parameter.id.endsWith('Cutoff')) return `${value} Hz`
+  if (parameter.id === 'osc1Detune' || parameter.id === 'osc2Detune' || parameter.id === 'lfoPitchDepth' || parameter.id === 'unisonDetune') return `${value} cents`
   if (parameter.id === 'lfoRate') return `${value} Hz`
-  if (parameter.id.endsWith('Sustain') || parameter.id.endsWith('Level') || parameter.id === 'filterResonance' || parameter.id === 'filterEnvelopeAmount' || parameter.id === 'lfoFilterDepth') return `${value}%`
+  if (parameter.id.endsWith('Sustain') || parameter.id.endsWith('Level') || parameter.id.endsWith('Resonance') || parameter.id === 'filterEnvelopeAmount' || parameter.id === 'lfoFilterDepth' || parameter.id === 'lfoResonanceDepth') return `${value}%`
   if (parameter.id.endsWith('Attack') || parameter.id.endsWith('Decay') || parameter.id.endsWith('Release')) return `${value} ms`
   return String(value)
 }
@@ -241,60 +249,6 @@ function WebSynthEnvelope({ section, values }: { section: 'Amp envelope' | 'Filt
         releaseMax={max('Release')}
       />
     </div>
-  )
-}
-
-function ToneVisualizer({ audioStatus }: { audioStatus: AudioSnapshot['status'] }) {
-  const waveformRef = useRef<SVGPathElement>(null)
-  const verticalZoom = 8
-
-  useEffect(() => {
-    const waveform = waveformRef.current
-    if (!waveform) return
-
-    const samples = new Uint8Array(256)
-    let frame = 0
-    let lastDraw = 0
-    const draw = (time: number) => {
-      if (time - lastDraw >= 33) {
-        lastDraw = time
-        if (!webAudioSynth.getWaveformData(samples)) samples.fill(128)
-        const points = Array.from(samples, (sample, index) => {
-          const x = index / (samples.length - 1) * 640
-          const y = Math.min(148, Math.max(12, 80 - (sample - 128) / 128 * verticalZoom * 68))
-          return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`
-        })
-        waveform.setAttribute('d', points.join(' '))
-      }
-      frame = requestAnimationFrame(draw)
-    }
-
-    if (audioStatus === 'ready') frame = requestAnimationFrame(draw)
-    return () => cancelAnimationFrame(frame)
-  }, [audioStatus, verticalZoom])
-
-  const description = audioStatus === 'ready'
-    ? 'Live output waveform. Play a note to see how the oscillators, filter, and envelope shape the sound.'
-    : 'Start audio and play a note to see the generated waveform.'
-
-  return (
-    <section className="tone-visualizer" aria-labelledby="tone-visualizer-title">
-      <div className="tone-visualizer-heading">
-        <div>
-          <span className="eyebrow">Signal view</span>
-          <h3 id="tone-visualizer-title">Output waveform</h3>
-        </div>
-        <p>{description}</p>
-      </div>
-      <svg className="tone-visualizer-graph" viewBox="0 0 640 160" preserveAspectRatio="none" role="img" aria-labelledby="tone-waveform-title" aria-describedby="tone-waveform-description">
-        <title id="tone-waveform-title">Live audio output waveform</title>
-        <desc id="tone-waveform-description">{description}</desc>
-        <path className="tone-waveform-grid" d="M 0 40 H 640 M 0 80 H 640 M 0 120 H 640 M 80 0 V 160 M 160 0 V 160 M 240 0 V 160 M 320 0 V 160 M 400 0 V 160 M 480 0 V 160 M 560 0 V 160" />
-        <path className="tone-waveform-center" d="M 0 80 H 640" />
-        <path ref={waveformRef} className="tone-waveform-line" d="M 0 80 H 640" />
-      </svg>
-      <div className="tone-visualizer-scale"><span>Time →</span><span>Vertical zoom: {verticalZoom}x (display only)</span></div>
-    </section>
   )
 }
 
@@ -331,14 +285,13 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
           <button type="button" className="primary-action" onClick={() => { void webAudioSynth.start() }} disabled={audio.status === 'starting'}>
             <Power aria-hidden="true" />{audio.status === 'ready' ? 'Resume audio' : audio.status === 'starting' ? 'Starting...' : 'Start audio'}
           </button>
-          <ClickControlHelp label="Audio output" text="Start or resume the browser audio engine so the virtual keyboard can produce sound. Browsers require a user gesture to enable audio. The signal flows from oscillators through the mixer, low-pass filter, and amplifier envelope to your speakers; no MIDI hardware is needed." />
+          <ClickControlHelp label="Audio output" text="Start or resume the browser audio engine so the virtual keyboard can produce sound. Browsers require a user gesture to enable audio. Each oscillator passes through its own LP, HP, or BP filter before the amplifier envelope and speakers; no MIDI hardware is needed." />
           </div>
         </div>
       </div>
       <p className={`audio-status audio-status-${audio.status}`} role="status" aria-live="polite">
         <strong>Audio {audio.status}.</strong>{audio.error ? ` ${audio.error}` : audio.status === 'ready' ? ' Audio output is independent of MIDI.' : ' Start audio to enable the virtual keyboard.'}
       </p>
-      <ToneVisualizer audioStatus={audio.status} />
       <div className="web-synth-grid">
         {([
           ['Oscillator 1', 'Oscillator 2', 'Mixer', 'Filter', 'LFO'],
@@ -347,7 +300,19 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
           <div key={row} className={row === 0 ? 'web-synth-signal-grid' : 'web-synth-envelope-grid'}>
             {sections.map((section) => (
               <PanelModule key={section} id={`web-${section.toLowerCase().replaceAll(' ', '-')}`} title={section} className={`web-synth-module web-${section.toLowerCase().replaceAll(' ', '-')}-module`}>
-                {section === 'Amp envelope' || section === 'Filter envelope'
+                {section === 'Filter' ? <>
+                  <div className="web-filter-bank">
+                    {(['Filter 1', 'Filter 2'] as const).map((filterSection, index) => (
+                      <fieldset className="web-filter-group" key={filterSection}>
+                        <legend>Oscillator {index + 1}</legend>
+                        <div className="web-synth-controls">
+                          {webSynthParameters.filter((parameter) => parameter.section === filterSection).map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
+                        </div>
+                      </fieldset>
+                    ))}
+                  </div>
+                  {webSynthParameters.filter((parameter) => parameter.section === 'Filter').map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
+                </> : section === 'Amp envelope' || section === 'Filter envelope'
                   ? <WebSynthEnvelope section={section} values={values} />
                   : <div className="web-synth-controls">
                     {webSynthParameters.filter((parameter) => parameter.section === section).map((parameter) => (
@@ -358,6 +323,12 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
             ))}
           </div>
         ))}
+        <PanelModule id="web-voice-unison" title="Voice / unison" className="web-synth-module web-voice-module">
+          <div className="web-synth-controls">
+            {webSynthParameters.filter((parameter) => parameter.section === 'Voice / unison').map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
+          </div>
+          <p className="web-voice-note">Changing polyphony or unison voices releases sounding notes.</p>
+        </PanelModule>
       </div>
     </section>
   )

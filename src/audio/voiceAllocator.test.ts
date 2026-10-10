@@ -44,4 +44,16 @@ describe('voice allocator', () => {
     const allocator = new VoiceAllocator()
     expect(() => allocator.allocate(128, 0)).toThrow(RangeError)
   })
+
+  it('resizes without reusing lease IDs when retired sources complete later', () => {
+    const allocator = new VoiceAllocator(8)
+    const old = allocator.allocate(60, 1).lease
+    allocator.resize(1)
+    const next = allocator.allocate(62, 2).lease
+    expect(next.id).toBeGreaterThan(old.id)
+    expect(allocator.complete(old.id)).toBe(false)
+    expect(allocator.activeCount).toBe(1)
+    expect(() => allocator.resize(0)).toThrow(RangeError)
+    expect(allocator.capacity).toBe(1)
+  })
 })

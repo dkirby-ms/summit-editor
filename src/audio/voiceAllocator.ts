@@ -14,10 +14,10 @@ export type VoiceAllocation = {
 export class VoiceAllocator {
   private readonly slots: Array<VoiceLease | null>
   private nextId = 1
-  readonly capacity: number
+  private voiceCapacity: number
 
   constructor(capacity = 8) {
-    this.capacity = capacity
+    this.voiceCapacity = capacity
     if (!Number.isInteger(capacity) || capacity < 1) throw new RangeError('Voice capacity must be a positive integer.')
     this.slots = Array.from({ length: capacity }, () => null)
   }
@@ -60,8 +60,18 @@ export class VoiceAllocator {
     return true
   }
 
+  resize(capacity: number) {
+    if (!Number.isInteger(capacity) || capacity < 1) throw new RangeError('Voice capacity must be a positive integer.')
+    this.voiceCapacity = capacity
+    this.slots.splice(0, this.slots.length, ...Array.from({ length: capacity }, () => null))
+  }
+
   get activeCount() {
     return this.slots.filter((lease) => lease !== null).length
+  }
+
+  get capacity() {
+    return this.voiceCapacity
   }
 
   private findVictimSlot() {
