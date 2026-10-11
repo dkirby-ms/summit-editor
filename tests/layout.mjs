@@ -494,6 +494,59 @@ test('Web Synth envelope controls sit beside their graphs without an output visu
       }
     })
 
+    for (const { width, height } of [
+      { width: 1366, height: 768 },
+      { width: 768, height: 1024 },
+      { width: 390, height: 844 },
+      { width: 320, height: 640 },
+    ]) {
+      test(`hardware envelope graphs sit beside compact sliders at ${width}px`, async () => {
+        const page = await browser.newPage({ viewport: { width, height } })
+        try {
+          await page.goto(baseUrl)
+          const profile = page.getByRole('combobox', { name: 'Synth profile' })
+          const assertEnvelopeRows = async (panel, sections) => {
+            for (const section of sections) {
+              const rows = await page.getByRole('region', { name: section, exact: true })
+                .locator('.hardware-envelope-layout')
+                .evaluateAll((elements) => elements.map((element) => {
+                  const controls = element.querySelector('.envelope-controls').getBoundingClientRect()
+                  const graph = element.querySelector('.envelope-graph').getBoundingClientRect()
+                  return {
+                    controlsRight: controls.right,
+                    controlsWidth: controls.width,
+                    graphLeft: graph.left,
+                    graphWidth: graph.width,
+                    controlsCenterY: controls.top + controls.height / 2,
+                    graphCenterY: graph.top + graph.height / 2,
+                  }
+                }))
+              assert.ok(rows.length > 0, `${panel} ${section} should render an envelope row`)
+              for (const row of rows) {
+                assert.ok(row.graphWidth > 50, `${panel} ${section} graph should have visible width`)
+                if (width > 360) {
+                  assert.ok(row.graphLeft >= row.controlsRight, `${panel} ${section} graph should be beside its sliders`)
+                  assert.ok(Math.abs(row.controlsCenterY - row.graphCenterY) < 2, `${panel} ${section} graph should be vertically aligned`)
+                  assert.ok(row.controlsWidth <= 144, `${panel} ${section} sliders should use a compact column`)
+                }
+              }
+            }
+          }
+
+          await profile.selectOption('summit')
+          await assertEnvelopeRows('Summit', ['Amp envelope', 'Mod envelopes'])
+          await profile.selectOption('ultranova')
+          await assertEnvelopeRows('UltraNova', ['Amp envelope', 'Filter / mod envelopes'])
+          assert.equal(await page.getByRole('img', { name: 'UltraNova amplifier envelope curve' }).count(), 1)
+          assert.equal(await page.getByRole('img', { name: 'UltraNova envelope 2 curve' }).count(), 1)
+          await page.getByRole('button', { name: 'Env 6', exact: true }).click()
+          assert.equal(await page.getByRole('img', { name: 'UltraNova envelope 6 curve' }).count(), 1)
+        } finally {
+          await page.close()
+        }
+      })
+    }
+
     assert.ok(layout.graphLeft >= layout.controlsRight)
     assert.ok(layout.graphWidth > layout.controlsWidth)
     assert.ok(layout.controlsHeight >= 150)

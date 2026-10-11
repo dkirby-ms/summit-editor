@@ -671,10 +671,12 @@ function EnvelopeView() {
   const values = usePatchStore((state) => state.values)
   return (
     <PanelModule id="envelope-title" title="Amp envelope" className="amp-module">
-      <div className="envelope-controls">
-        <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => parameter.fader)} />
+      <div className="hardware-envelope-layout">
+        <div className="envelope-controls">
+          <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => parameter.fader)} />
+        </div>
+        <EnvelopeGraph id="amp-graph" title="Amplifier envelope curve" attack={values.ampAttack} decay={values.ampDecay} sustain={values.ampSustain} release={values.ampRelease} />
       </div>
-      <EnvelopeGraph id="amp-graph" title="Amplifier envelope curve" attack={values.ampAttack} decay={values.ampDecay} sustain={values.ampSustain} release={values.ampRelease} />
       <div className="parameter-grid envelope-options">
         <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => !parameter.fader)} />
       </div>
@@ -696,17 +698,19 @@ function ModEnvelopeModule() {
           </button>
         ))}
       </div>
-      <div className="envelope-controls">
-        <ParameterGroup parameters={parameters.filter((parameter) => parameter.fader)} />
+      <div className="hardware-envelope-layout">
+        <div className="envelope-controls">
+          <ParameterGroup parameters={parameters.filter((parameter) => parameter.fader)} />
+        </div>
+        <EnvelopeGraph
+          id="mod-graph"
+          title={`Mod envelope ${selected} curve`}
+          attack={selected === 1 ? values.modEnv1Attack : values.modEnv2Attack}
+          decay={selected === 1 ? values.modEnv1Decay : values.modEnv2Decay}
+          sustain={selected === 1 ? values.modEnv1Sustain : values.modEnv2Sustain}
+          release={selected === 1 ? values.modEnv1Release : values.modEnv2Release}
+        />
       </div>
-      <EnvelopeGraph
-        id="mod-graph"
-        title={`Mod envelope ${selected} curve`}
-        attack={selected === 1 ? values.modEnv1Attack : values.modEnv2Attack}
-        decay={selected === 1 ? values.modEnv1Decay : values.modEnv2Decay}
-        sustain={selected === 1 ? values.modEnv1Sustain : values.modEnv2Sustain}
-        release={selected === 1 ? values.modEnv1Release : values.modEnv2Release}
-      />
       <div className="parameter-grid envelope-options">
         <ParameterGroup parameters={parameters.filter((parameter) => !parameter.fader)} />
       </div>
@@ -1133,6 +1137,7 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
 function UltraNovaPanel() {
   const [lfo, setLfo] = useState(1)
   const [envelope, setEnvelope] = useState(2)
+  const values = usePatchStore((state) => state.values)
   const controls = (section: string) => (
     <div className="parameter-grid"><ParameterGroup parameters={ultranovaParameters.filter((parameter) => parameter.section === section)} /></div>
   )
@@ -1157,12 +1162,31 @@ function UltraNovaPanel() {
           </div>
           {controls(`LFO ${lfo}`)}
         </PanelModule>
-        <PanelModule id="ultranova-amp" title="Amp envelope" className="amp-module">{controls('Amp envelope')}</PanelModule>
+        <PanelModule id="ultranova-amp" title="Amp envelope" className="amp-module">
+          <div className="hardware-envelope-layout">
+            <div className="envelope-controls">
+              <ParameterGroup parameters={ultranovaParameters.filter((parameter) => parameter.section === 'Amp envelope')} />
+            </div>
+            <EnvelopeGraph id="ultranova-amp-graph" title="UltraNova amplifier envelope curve" attack={values.ampAttack} decay={values.ampDecay} sustain={values.ampSustain} release={values.ampRelease} />
+          </div>
+        </PanelModule>
         <PanelModule id="ultranova-envelopes" title="Filter / mod envelopes" className="mod-envelopes-module">
           <div className="lfo-selector">
             {[2, 3, 4, 5, 6].map((index) => <button key={index} type="button" aria-pressed={envelope === index} onClick={() => setEnvelope(index)}>{index === 2 ? 'Filter env' : `Env ${index}`}</button>)}
           </div>
-          {controls(`Envelope ${envelope}`)}
+          <div className="hardware-envelope-layout">
+            <div className="envelope-controls">
+              <ParameterGroup parameters={ultranovaParameters.filter((parameter) => parameter.section === `Envelope ${envelope}`)} />
+            </div>
+            <EnvelopeGraph
+              id={`ultranova-envelope-${envelope}-graph`}
+              title={`UltraNova envelope ${envelope} curve`}
+              attack={values[`env${envelope}Attack`]}
+              decay={values[`env${envelope}Decay`]}
+              sustain={values[`env${envelope}Sustain`]}
+              release={values[`env${envelope}Release`]}
+            />
+          </div>
         </PanelModule>
         <div className="oscillator-bank">
           {[1, 2, 3].map((index) => <PanelModule key={index} id={`ultranova-osc-${index}`} title={`Oscillator ${index}`} className="oscillator-module">{controls(`Oscillator ${index}`)}</PanelModule>)}

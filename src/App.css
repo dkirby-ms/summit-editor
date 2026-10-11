@@ -164,6 +164,9 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .web-envelope-layout .envelope-controls .parameter-heading output { font: 500 8px/1.2 var(--mono); color: #f1c965; }
 .web-envelope-layout .envelope-controls input[type='range'] { width: 20px; height: 120px; }
 .web-envelope-layout .web-envelope-graph { height: 164px; min-height: 0; align-self: center; border: 1px solid #596365; }
+.hardware-envelope-layout { display: grid; grid-template-columns: 144px minmax(0, 1fr); align-items: center; gap: 6px; min-width: 0; }
+.hardware-envelope-layout .envelope-controls { min-width: 0; }
+.hardware-envelope-layout .envelope-graph { height: 46px; }
 .web-synth-panel .primary-action { min-height: 34px; white-space: nowrap; }
 .web-synth-panel .primary-action:disabled { opacity: 0.65; }
 .panel-intro { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 8px; }
@@ -416,6 +419,7 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
   .web-mixer-module { grid-column: 1; grid-row: auto; }
   .web-envelope-layout { grid-template-columns: 1fr; }
   .web-envelope-layout .web-envelope-graph { width: 100%; height: 100px; }
+  .hardware-envelope-layout { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 420px) {
   .brand-block { gap: 10px; }
