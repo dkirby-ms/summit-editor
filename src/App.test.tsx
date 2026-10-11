@@ -304,6 +304,63 @@ describe('Zinth', () => {
     expect(noteOff).toHaveBeenNthCalledWith(2, 72)
   })
 
+  it('releases lost pointer capture and clears held keys when the page loses focus', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(webAudioSynth, 'getSnapshot').mockReturnValue({ status: 'ready', error: null })
+    const noteOn = vi.spyOn(webAudioSynth, 'noteOn').mockReturnValue(true)
+    const noteOff = vi.spyOn(webAudioSynth, 'noteOff').mockReturnValue(true)
+    const panic = vi.spyOn(webAudioSynth, 'allNotesOff').mockReturnValue(0)
+    render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+    const key = screen.getByRole('button', { name: 'Play C 2' })
+    key.setPointerCapture = vi.fn()
+
+    act(() => {
+      fireEvent.pointerDown(key, { pointerId: 1 })
+      fireEvent.lostPointerCapture(key, { pointerId: 1 })
+    })
+    expect(noteOff).toHaveBeenCalledTimes(1)
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.keyDown(key, { key: 'Enter' })
+    expect(key).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.blur(window)
+    expect(panic).toHaveBeenCalledTimes(1)
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.keyDown(key, { key: 'Enter', repeat: true })
+    expect(noteOn).toHaveBeenCalledTimes(2)
+    fireEvent.keyUp(key, { key: 'Enter' })
+    fireEvent.keyDown(key, { key: 'Enter' })
+    expect(noteOn).toHaveBeenCalledTimes(3)
+
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    fireEvent(document, new Event('visibilitychange'))
+    expect(panic).toHaveBeenCalledTimes(2)
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.keyDown(key, { key: 'Enter' })
+    fireEvent(window, new Event('pagehide'))
+    expect(panic).toHaveBeenCalledTimes(3)
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('clears held keyboard state on panic without restarting from key repeat', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(webAudioSynth, 'getSnapshot').mockReturnValue({ status: 'ready', error: null })
+    const noteOn = vi.spyOn(webAudioSynth, 'noteOn').mockReturnValue(true)
+    vi.spyOn(webAudioSynth, 'allNotesOff').mockReturnValue(0)
+    render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+    const key = screen.getByRole('button', { name: 'Play C 2' })
+    fireEvent.keyDown(key, { key: ' ' })
+    await user.click(screen.getByRole('button', { name: 'All notes off' }))
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.keyDown(key, { key: ' ', repeat: true })
+    expect(noteOn).toHaveBeenCalledTimes(1)
+    fireEvent.keyUp(key, { key: ' ' })
+    fireEvent.keyDown(key, { key: ' ' })
+    expect(noteOn).toHaveBeenCalledTimes(2)
+  })
+
   it('releases active Web Audio keyboard notes when the keyboard resizes or collapses', async () => {
     const user = userEvent.setup()
     let resize: ResizeObserverCallback | undefined

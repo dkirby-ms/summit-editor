@@ -182,7 +182,14 @@ describe('Summit MIDI engine', () => {
     expect(engine.allNotesOff()).toBe(true)
     expect(send).toHaveBeenNthCalledWith(1, [0x92, 60, 96])
     expect(send).toHaveBeenNthCalledWith(2, [0x82, 60, 0])
-    expect(send).toHaveBeenNthCalledWith(3, [0xb2, 123, 0])
+    expect(send).toHaveBeenNthCalledWith(3, [0xb2, 64, 0])
+    for (let note = 0; note < 128; note += 1) {
+      expect(send).toHaveBeenNthCalledWith(note + 4, [0x82, note, 0])
+    }
+    expect(send).toHaveBeenNthCalledWith(132, [0xb2, 120, 0])
+    expect(send).toHaveBeenNthCalledWith(133, [0xb2, 123, 0])
+    expect(send).toHaveBeenCalledTimes(133)
+    engine.destroy()
   })
 
   it('rejects malformed SysEx, cleans listeners, and reports access errors', async () => {

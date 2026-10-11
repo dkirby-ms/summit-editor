@@ -955,6 +955,7 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
   const [octave, setOctave] = useState(2)
   const [velocity, setVelocity] = useState(100)
   const [activeNotes, setActiveNotes] = useState<Set<number>>(() => new Set())
+  const activeNotesRef = useRef<Set<number>>(new Set())
   const keyboardHeldNotes = useRef<Set<number>>(new Set())
   const baseNote = (octave + 1) * 12
   const whiteKeys = [
@@ -968,7 +969,26 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
     })),
   ).flat()
 
-  useEffect(() => () => output.allNotesOff(), [output])
+  useEffect(() => {
+    const stop = () => {
+      output.allNotesOff()
+      activeNotesRef.current.clear()
+      keyboardHeldNotes.current.clear()
+      setActiveNotes(new Set())
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') stop()
+    }
+    window.addEventListener('blur', stop)
+    window.addEventListener('pagehide', stop)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      output.allNotesOff()
+      window.removeEventListener('blur', stop)
+      window.removeEventListener('pagehide', stop)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [output])
   useEffect(() => {
     const keybed = keybedRef.current
     if (!keybed || typeof ResizeObserver === 'undefined') return
@@ -980,6 +1000,8 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
       if (nextOctaves === previousOctaves) return
       previousOctaves = nextOctaves
       output.allNotesOff()
+      activeNotesRef.current.clear()
+      keyboardHeldNotes.current.clear()
       setActiveNotes(new Set())
       setVisibleOctaves(nextOctaves)
     })
@@ -995,14 +1017,15 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
   }
 
   function playNote(note: number) {
-    if (!output.enabled || activeNotes.has(note)) return false
+    if (!output.enabled || activeNotesRef.current.has(note)) return false
     if (!output.onNoteOn(note, velocity)) return false
+    activeNotesRef.current.add(note)
     setActiveNotes((current) => new Set(current).add(note))
     return true
   }
 
   function releaseNote(note: number) {
-    if (!activeNotes.has(note)) return
+    if (!activeNotesRef.current.delete(note)) return
     output.onNoteOff(note)
     setActiveNotes((current) => {
       const next = new Set(current)
@@ -1012,14 +1035,13 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
   }
 
   function changeOctave(nextOctave: number) {
-    output.allNotesOff()
-    keyboardHeldNotes.current.clear()
-    setActiveNotes(new Set())
+    stopAllNotes()
     setOctave(nextOctave)
   }
 
   function stopAllNotes() {
     output.allNotesOff()
+    activeNotesRef.current.clear()
     keyboardHeldNotes.current.clear()
     setActiveNotes(new Set())
   }
@@ -1037,14 +1059,16 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
         disabled={!output.enabled}
         onPointerDown={(event) => {
           event.preventDefault()
-          event.currentTarget.setPointerCapture(event.pointerId)
+          event.currentTarget.setPointerCapture?.(event.pointerId)
           playNote(note)
         }}
         onPointerUp={() => releaseNote(note)}
         onPointerCancel={() => releaseNote(note)}
+        onLostPointerCapture={() => releaseNote(note)}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return
           event.preventDefault()
+          if (event.repeat) return
           if (keyboardHeldNotes.current.has(note)) return
           if (playNote(note)) keyboardHeldNotes.current.add(note)
         }}
@@ -1074,7 +1098,7 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
               if (expanded) stopAllNotes()
               setExpanded((current) => !current)
             }} /></h2></div>
-            {isWebSynth && <ClickControlHelp label="Virtual keyboard" text="Press and hold a piano key with a pointer, or focus it and hold Space or Enter, to play a note. Releasing it starts the envelope release stages. Each note sets oscillator pitch and triggers its own envelopes, so you can play several notes together." />}
+            {isWebSynth && <ClickControlHelp label="Virtual keyboard" text="Press and hold a piano key with a pointer, or focus it and hold Space or Enter, to play a note. Releasing it starts the envelope release stages. Notes stop if the window loses focus or the page is hidden. Each note sets oscillator pitch and triggers its own envelopes, so you can play several notes together." />}
           </div>
           <div id="keyboard-options" className="keyboard-controls" hidden={!expanded}>
             <div className="octave-control" aria-label="Keyboard octave">
@@ -1179,7 +1203,10 @@ function App() {
       : midi.selectedOutputId ? 'Ready on selected MIDI output.' : 'Select a MIDI output to play.',
     onNoteOn: (note, velocity) => sendPerformanceNoteOn(activeProfileId, note, velocity),
     onNoteOff: (note) => sendPerformanceNoteOff(activeProfileId, note),
-    allNotesOff: () => releasePerformanceNotes(activeProfileId),
+    allNotesOff: () => {
+      inputHeldNotes.current = []
+      releasePerformanceNotes(activeProfileId)
+    },
   }), [activeProfileId, audio.status, midi.selectedOutputId])
   const rawPatch = usePatchStore((state) => state.summitState.rawPatch)
   const rawPatchSource = usePatchStore((state) => state.summitState.rawPatchSource)

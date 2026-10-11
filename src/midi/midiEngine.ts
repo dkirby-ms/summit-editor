@@ -247,9 +247,16 @@ export class SummitMidiEngine {
     return true
   }
 
+  /** Sends sustain-off, explicit note-offs, and panic controllers on the selected channel only. */
   allNotesOff() {
     if (!this.selectedOutput) return false
-    this.selectedOutput.send([0xb0 | (this.snapshot.channel - 1), 123, 0])
+    const channel = this.snapshot.channel - 1
+    this.selectedOutput.send([0xb0 | channel, 64, 0])
+    for (let note = 0; note < 128; note += 1) {
+      this.selectedOutput.send([0x80 | channel, note, 0])
+    }
+    this.selectedOutput.send([0xb0 | channel, 120, 0])
+    this.selectedOutput.send([0xb0 | channel, 123, 0])
     this.update({ activity: 'All notes off.' })
     return true
   }
