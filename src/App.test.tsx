@@ -10,7 +10,7 @@ import { webAudioSynth } from './audio/webAudioSynth'
 import { webSynthParameterHelp, webSynthParameters, webSynthPresets } from './model/webSynthProfile'
 import { ultranovaParameters } from './model/ultranovaProfile'
 
-describe('Zinth', () => {
+describe('PatchGator', () => {
   beforeEach(() => usePatchStore.setState({
     activeProfileId: 'summit',
     profileValues: { summit: { ...defaultPatchValues } },
@@ -576,7 +576,7 @@ describe('Zinth', () => {
 
   it('renders an offline editor with grouped documented controls', () => {
     render(<App />)
-    expect(screen.getByRole('heading', { name: 'Zinth - Synth Patch Designer' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'PatchGator' })).toBeInTheDocument()
     expect(screen.getByText('Offline editor')).toBeInTheDocument()
     expect(screen.getByLabelText('Filter resonance')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /amplifier envelope/i })).toBeInTheDocument()

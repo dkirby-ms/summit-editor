@@ -13,7 +13,6 @@ import {
   RefreshCw,
   RotateCcw,
   Send,
-  SlidersHorizontal,
   Upload,
   Waves,
 } from 'lucide-react'
@@ -1275,8 +1274,16 @@ function App() {
     <div className={`app-shell${activeProfileId === 'ultranova' ? ' ultranova-theme' : ''}${debug ? ' debug-mode' : ''}`}>
       <header className="app-header">
         <div className="brand-block">
-          <div className="brand-mark"><SlidersHorizontal aria-hidden="true" /></div>
-          <div><h1>Zinth <span>- Synth Patch Designer</span></h1></div>
+          <div className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 40" fill="none">
+              <path d="M0 15c4 2 8 2 13 1 3-4 8-5 13-3l2-3 3 4 3-2 3 5 9 1c1 0 2 1 2 2v2H35c-2 4-6 6-11 6h-5l-1 5h-4l1-5H9l-2 5H3l4-8c-3-2-6-6-7-10Z" fill="currentColor" />
+              <path d="M33 22h13" stroke="#233229" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="m35 22 2 3 2-3m2 0 2 3 2-3" fill="none" stroke="#233229" strokeWidth="1.1" strokeLinejoin="round" />
+              <circle cx="30" cy="15" r="2" fill="#233229" />
+              <circle cx="45" cy="17" r="1" fill="#233229" />
+            </svg>
+          </div>
+          <div><h1>Patch<span>Gator</span></h1><p>Synth patch designer</p></div>
         </div>
         <div className="patch-identity">
           <label><span>Synth profile</span><select aria-label="Synth profile" value={activeProfileId} onChange={(event) => setActiveProfile(event.target.value as typeof activeProfileId)}>

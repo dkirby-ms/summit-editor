@@ -1,13 +1,14 @@
 ---
-title: Zinth
-description: Browser-based synth patch designer with a built-in Web Synth and optional Novation Summit and UltraNova MIDI support.
+title: PatchGator
+description: >-
+  PatchGator is a browser-based synth patch designer with a built-in Web Synth
+  and optional Novation Summit and UltraNova MIDI support.
 ---
 
-# Zinth
-
-A browser-based synth patch designer with a built-in Web Synth selected by default. Connect to
-Novation Summit or UltraNova over Web MIDI to edit supported controls, or use the
-virtual keyboard with any synth profile. Summit also supports raw patch transfer.
+PatchGator is a browser-based synth patch designer with a built-in Web Synth
+selected by default. Connect to Novation Summit or UltraNova over Web MIDI to
+edit supported controls, or use the virtual keyboard with any synth profile.
+Summit also supports raw patch transfer.
 
 ## Start
 
@@ -112,7 +113,7 @@ hardware Init patch. Save your hardware patch first.
 Mappings follow Novation's [UltraNova MIDI implementation](https://fael-downloads-prod.focusrite.com/customer/prod/s3fs-public/novation/downloads/10539/ultranova-midi-implementation2.pdf)
 and [user guide](https://fael-downloads-prod.focusrite.com/customer/prod/s3fs-public/novation/downloads/10524/ultranova-userguide2.pdf).
 Enable MIDI control transmission/reception on your synth and verify behavior
-with your hardware. Zinth does not read the current patch into these controls;
+with your hardware. PatchGator does not read the current patch into these controls;
 incoming supported CC/NRPN edits update them without echoing.
 
 UltraNova SysEx transfer, its 20-slot modulation matrix, Touch controls,
