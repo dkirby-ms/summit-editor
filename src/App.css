@@ -164,7 +164,8 @@ main { padding: 10px clamp(14px, 2vw, 32px); background-image: linear-gradient(r
 .web-envelope-layout .envelope-controls .parameter-heading, .hardware-envelope-layout .envelope-controls .parameter-heading { min-height: 27px; }
 .web-envelope-layout .envelope-controls .parameter-heading label, .hardware-envelope-layout .envelope-controls .parameter-heading label { font-size: 9px; }
 .web-envelope-layout .envelope-controls .parameter-heading output, .hardware-envelope-layout .envelope-controls .parameter-heading output { font: 500 8px/1.2 var(--mono); color: #f1c965; }
-.web-envelope-layout .envelope-controls input[type='range'], .hardware-envelope-layout .envelope-controls input[type='range'] { width: 24px; height: 100px; }
+.web-envelope-layout .envelope-controls input[type='range'] { width: 20px; height: 120px; }
+.hardware-envelope-layout .envelope-controls input[type='range'] { width: 24px; height: 100px; }
 .web-envelope-layout .web-envelope-graph { height: 164px; min-height: 0; align-self: center; border: 1px solid #596365; }
 .hardware-envelope-layout .envelope-graph { height: 130px; min-height: 0; align-self: center; border: 1px solid #596365; }
 .web-synth-panel .primary-action { min-height: 34px; white-space: nowrap; }
