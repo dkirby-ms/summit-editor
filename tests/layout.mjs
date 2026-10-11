@@ -527,7 +527,7 @@ test('Web Synth envelope controls sit beside their graphs without an output visu
                 if (width > 360) {
                   assert.ok(row.graphLeft >= row.controlsRight, `${panel} ${section} graph should be beside its sliders`)
                   assert.ok(Math.abs(row.controlsCenterY - row.graphCenterY) < 2, `${panel} ${section} graph should be vertically aligned`)
-                  assert.ok(row.controlsWidth <= 144, `${panel} ${section} sliders should use a compact column`)
+                  assert.ok(row.controlsWidth <= 180, `${panel} ${section} sliders should use a compact column`)
                 }
               }
             }

@@ -271,7 +271,7 @@ function WebSynthParameterControl({ parameter, vertical = false }: { parameter: 
       ) : valueLabels ? (
         <fieldset className="waveform-options" aria-label={parameter.label}>
           {valueLabels.map((label, index) => (
-            <label key={label} className="waveform-option">
+            <label key={label} className="waveform-option" title={label}>
               <input type="radio" name={`web-${parameter.id}`} value={index} checked={value === index} onChange={() => update(index)} />
               <svg viewBox="0 0 52 32" aria-hidden="true"><path d={waveformShapes[index]} /></svg>
               <span>{label}</span>
@@ -521,14 +521,14 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
                   </div>}
               </PanelModule>
             ))}
+            {row === 1 && !tutorial && <PanelModule id="web-voice-unison" title="Voice / unison" className="web-synth-module web-voice-module">
+              <div className="web-synth-controls">
+                {webSynthParameters.filter((parameter) => parameter.section === 'Voice / unison').map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
+              </div>
+              <p className="web-voice-note">Changing polyphony or unison voices releases sounding notes.</p>
+            </PanelModule>}
           </div>
         ))}
-        {!tutorial && <PanelModule id="web-voice-unison" title="Voice / unison" className="web-synth-module web-voice-module">
-          <div className="web-synth-controls">
-            {webSynthParameters.filter((parameter) => parameter.section === 'Voice / unison').map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
-          </div>
-          <p className="web-voice-note">Changing polyphony or unison voices releases sounding notes.</p>
-        </PanelModule>}
       </div>
     </section>
   )
