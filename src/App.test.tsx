@@ -10,7 +10,7 @@ import { webAudioSynth } from './audio/webAudioSynth'
 import { webSynthParameterHelp, webSynthParameters, webSynthPresets } from './model/webSynthProfile'
 import { ultranovaParameters } from './model/ultranovaProfile'
 
-describe('Zinth', () => {
+describe('PatchGator', () => {
   beforeEach(() => usePatchStore.setState({
     activeProfileId: 'summit',
     profileValues: { summit: { ...defaultPatchValues } },
@@ -73,6 +73,8 @@ describe('Zinth', () => {
     expect(screen.queryByRole('button', { name: 'Import' })).not.toBeInTheDocument()
     expect(screen.getByText(/UltraNova's 20-slot matrix/)).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Amplifier envelope attack' })).toHaveAttribute('aria-orientation', 'vertical')
+    expect(screen.getByRole('img', { name: 'UltraNova amplifier envelope curve' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'UltraNova envelope 2 curve' })).toBeInTheDocument()
     const slot1 = screen.getByRole('combobox', { name: 'Slot 1 type' })
     const slot2 = screen.getByRole('combobox', { name: 'Slot 2 type' })
     await user.selectOptions(slot1, '2')
@@ -93,6 +95,8 @@ describe('Zinth', () => {
     await user.click(screen.getByRole('button', { name: 'Env 6' }))
     fireEvent.change(screen.getByRole('slider', { name: 'Envelope 6 attack' }), { target: { value: '35' } })
     expect(send).toHaveBeenLastCalledWith('env6Attack', 35)
+    expect(screen.getByRole('img', { name: 'UltraNova envelope 6 curve' })).toBeInTheDocument()
+    expect(document.getElementById('ultranova-envelope-6-graph-summary')).toHaveTextContent('Attack 35')
     await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'summit')
     expect(document.querySelector('.app-shell')).not.toHaveClass('ultranova-theme')
     expect(usePatchStore.getState().values.osc1Wave).toBe(2)
@@ -302,6 +306,63 @@ describe('Zinth', () => {
     expect(noteOn).toHaveBeenNthCalledWith(2, 72, 100)
     expect(noteOff).toHaveBeenNthCalledWith(1, 67)
     expect(noteOff).toHaveBeenNthCalledWith(2, 72)
+  })
+
+  it('releases lost pointer capture and clears held keys when the page loses focus', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(webAudioSynth, 'getSnapshot').mockReturnValue({ status: 'ready', error: null })
+    const noteOn = vi.spyOn(webAudioSynth, 'noteOn').mockReturnValue(true)
+    const noteOff = vi.spyOn(webAudioSynth, 'noteOff').mockReturnValue(true)
+    const panic = vi.spyOn(webAudioSynth, 'allNotesOff').mockReturnValue(0)
+    render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+    const key = screen.getByRole('button', { name: 'Play C 2' })
+    key.setPointerCapture = vi.fn()
+
+    act(() => {
+      fireEvent.pointerDown(key, { pointerId: 1 })
+      fireEvent.lostPointerCapture(key, { pointerId: 1 })
+    })
+    expect(noteOff).toHaveBeenCalledTimes(1)
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.keyDown(key, { key: 'Enter' })
+    expect(key).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.blur(window)
+    expect(panic).toHaveBeenCalledTimes(1)
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.keyDown(key, { key: 'Enter', repeat: true })
+    expect(noteOn).toHaveBeenCalledTimes(2)
+    fireEvent.keyUp(key, { key: 'Enter' })
+    fireEvent.keyDown(key, { key: 'Enter' })
+    expect(noteOn).toHaveBeenCalledTimes(3)
+
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    fireEvent(document, new Event('visibilitychange'))
+    expect(panic).toHaveBeenCalledTimes(2)
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.keyDown(key, { key: 'Enter' })
+    fireEvent(window, new Event('pagehide'))
+    expect(panic).toHaveBeenCalledTimes(3)
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('clears held keyboard state on panic without restarting from key repeat', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(webAudioSynth, 'getSnapshot').mockReturnValue({ status: 'ready', error: null })
+    const noteOn = vi.spyOn(webAudioSynth, 'noteOn').mockReturnValue(true)
+    vi.spyOn(webAudioSynth, 'allNotesOff').mockReturnValue(0)
+    render(<App />)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Synth profile' }), 'web-synth')
+    const key = screen.getByRole('button', { name: 'Play C 2' })
+    fireEvent.keyDown(key, { key: ' ' })
+    await user.click(screen.getByRole('button', { name: 'All notes off' }))
+    expect(key).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.keyDown(key, { key: ' ', repeat: true })
+    expect(noteOn).toHaveBeenCalledTimes(1)
+    fireEvent.keyUp(key, { key: ' ' })
+    fireEvent.keyDown(key, { key: ' ' })
+    expect(noteOn).toHaveBeenCalledTimes(2)
   })
 
   it('releases active Web Audio keyboard notes when the keyboard resizes or collapses', async () => {
@@ -519,10 +580,11 @@ describe('Zinth', () => {
 
   it('renders an offline editor with grouped documented controls', () => {
     render(<App />)
-    expect(screen.getByRole('heading', { name: 'Zinth - Synth Patch Designer' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'PatchGator' })).toBeInTheDocument()
     expect(screen.getByText('Offline editor')).toBeInTheDocument()
     expect(screen.getByLabelText('Filter resonance')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /amplifier envelope/i })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Mod envelope 1 curve' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /connect midi/i })).toBeDisabled()
   })
 

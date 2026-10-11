@@ -13,7 +13,6 @@ import {
   RefreshCw,
   RotateCcw,
   Send,
-  SlidersHorizontal,
   Upload,
   Waves,
 } from 'lucide-react'
@@ -272,7 +271,7 @@ function WebSynthParameterControl({ parameter, vertical = false }: { parameter: 
       ) : valueLabels ? (
         <fieldset className="waveform-options" aria-label={parameter.label}>
           {valueLabels.map((label, index) => (
-            <label key={label} className="waveform-option">
+            <label key={label} className="waveform-option" title={label}>
               <input type="radio" name={`web-${parameter.id}`} value={index} checked={value === index} onChange={() => update(index)} />
               <svg viewBox="0 0 52 32" aria-hidden="true"><path d={waveformShapes[index]} /></svg>
               <span>{label}</span>
@@ -522,14 +521,14 @@ function WebSynthPanel({ audio }: { audio: AudioSnapshot }) {
                   </div>}
               </PanelModule>
             ))}
+            {row === 1 && !tutorial && <PanelModule id="web-voice-unison" title="Voice / unison" className="web-synth-module web-voice-module">
+              <div className="web-synth-controls">
+                {webSynthParameters.filter((parameter) => parameter.section === 'Voice / unison').map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
+              </div>
+              <p className="web-voice-note">Changing polyphony or unison voices releases sounding notes.</p>
+            </PanelModule>}
           </div>
         ))}
-        {!tutorial && <PanelModule id="web-voice-unison" title="Voice / unison" className="web-synth-module web-voice-module">
-          <div className="web-synth-controls">
-            {webSynthParameters.filter((parameter) => parameter.section === 'Voice / unison').map((parameter) => <WebSynthParameterControl key={parameter.id} parameter={parameter} />)}
-          </div>
-          <p className="web-voice-note">Changing polyphony or unison voices releases sounding notes.</p>
-        </PanelModule>}
       </div>
     </section>
   )
@@ -672,10 +671,12 @@ function EnvelopeView() {
   const values = usePatchStore((state) => state.values)
   return (
     <PanelModule id="envelope-title" title="Amp envelope" className="amp-module">
-      <div className="envelope-controls">
-        <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => parameter.fader)} />
+      <div className="hardware-envelope-layout">
+        <div className="envelope-controls">
+          <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => parameter.fader)} />
+        </div>
+        <EnvelopeGraph id="amp-graph" title="Amplifier envelope curve" attack={values.ampAttack} decay={values.ampDecay} sustain={values.ampSustain} release={values.ampRelease} />
       </div>
-      <EnvelopeGraph id="amp-graph" title="Amplifier envelope curve" attack={values.ampAttack} decay={values.ampDecay} sustain={values.ampSustain} release={values.ampRelease} />
       <div className="parameter-grid envelope-options">
         <ParameterGroup parameters={parametersInSection('Envelope').filter((parameter) => !parameter.fader)} />
       </div>
@@ -697,17 +698,19 @@ function ModEnvelopeModule() {
           </button>
         ))}
       </div>
-      <div className="envelope-controls">
-        <ParameterGroup parameters={parameters.filter((parameter) => parameter.fader)} />
+      <div className="hardware-envelope-layout">
+        <div className="envelope-controls">
+          <ParameterGroup parameters={parameters.filter((parameter) => parameter.fader)} />
+        </div>
+        <EnvelopeGraph
+          id="mod-graph"
+          title={`Mod envelope ${selected} curve`}
+          attack={selected === 1 ? values.modEnv1Attack : values.modEnv2Attack}
+          decay={selected === 1 ? values.modEnv1Decay : values.modEnv2Decay}
+          sustain={selected === 1 ? values.modEnv1Sustain : values.modEnv2Sustain}
+          release={selected === 1 ? values.modEnv1Release : values.modEnv2Release}
+        />
       </div>
-      <EnvelopeGraph
-        id="mod-graph"
-        title={`Mod envelope ${selected} curve`}
-        attack={selected === 1 ? values.modEnv1Attack : values.modEnv2Attack}
-        decay={selected === 1 ? values.modEnv1Decay : values.modEnv2Decay}
-        sustain={selected === 1 ? values.modEnv1Sustain : values.modEnv2Sustain}
-        release={selected === 1 ? values.modEnv1Release : values.modEnv2Release}
-      />
       <div className="parameter-grid envelope-options">
         <ParameterGroup parameters={parameters.filter((parameter) => !parameter.fader)} />
       </div>
@@ -955,6 +958,7 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
   const [octave, setOctave] = useState(2)
   const [velocity, setVelocity] = useState(100)
   const [activeNotes, setActiveNotes] = useState<Set<number>>(() => new Set())
+  const activeNotesRef = useRef<Set<number>>(new Set())
   const keyboardHeldNotes = useRef<Set<number>>(new Set())
   const baseNote = (octave + 1) * 12
   const whiteKeys = [
@@ -968,7 +972,26 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
     })),
   ).flat()
 
-  useEffect(() => () => output.allNotesOff(), [output])
+  useEffect(() => {
+    const stop = () => {
+      output.allNotesOff()
+      activeNotesRef.current.clear()
+      keyboardHeldNotes.current.clear()
+      setActiveNotes(new Set())
+    }
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') stop()
+    }
+    window.addEventListener('blur', stop)
+    window.addEventListener('pagehide', stop)
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      output.allNotesOff()
+      window.removeEventListener('blur', stop)
+      window.removeEventListener('pagehide', stop)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [output])
   useEffect(() => {
     const keybed = keybedRef.current
     if (!keybed || typeof ResizeObserver === 'undefined') return
@@ -980,6 +1003,8 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
       if (nextOctaves === previousOctaves) return
       previousOctaves = nextOctaves
       output.allNotesOff()
+      activeNotesRef.current.clear()
+      keyboardHeldNotes.current.clear()
       setActiveNotes(new Set())
       setVisibleOctaves(nextOctaves)
     })
@@ -995,14 +1020,15 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
   }
 
   function playNote(note: number) {
-    if (!output.enabled || activeNotes.has(note)) return false
+    if (!output.enabled || activeNotesRef.current.has(note)) return false
     if (!output.onNoteOn(note, velocity)) return false
+    activeNotesRef.current.add(note)
     setActiveNotes((current) => new Set(current).add(note))
     return true
   }
 
   function releaseNote(note: number) {
-    if (!activeNotes.has(note)) return
+    if (!activeNotesRef.current.delete(note)) return
     output.onNoteOff(note)
     setActiveNotes((current) => {
       const next = new Set(current)
@@ -1012,14 +1038,13 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
   }
 
   function changeOctave(nextOctave: number) {
-    output.allNotesOff()
-    keyboardHeldNotes.current.clear()
-    setActiveNotes(new Set())
+    stopAllNotes()
     setOctave(nextOctave)
   }
 
   function stopAllNotes() {
     output.allNotesOff()
+    activeNotesRef.current.clear()
     keyboardHeldNotes.current.clear()
     setActiveNotes(new Set())
   }
@@ -1037,14 +1062,16 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
         disabled={!output.enabled}
         onPointerDown={(event) => {
           event.preventDefault()
-          event.currentTarget.setPointerCapture(event.pointerId)
+          event.currentTarget.setPointerCapture?.(event.pointerId)
           playNote(note)
         }}
         onPointerUp={() => releaseNote(note)}
         onPointerCancel={() => releaseNote(note)}
+        onLostPointerCapture={() => releaseNote(note)}
         onKeyDown={(event) => {
           if (event.key !== 'Enter' && event.key !== ' ') return
           event.preventDefault()
+          if (event.repeat) return
           if (keyboardHeldNotes.current.has(note)) return
           if (playNote(note)) keyboardHeldNotes.current.add(note)
         }}
@@ -1074,7 +1101,7 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
               if (expanded) stopAllNotes()
               setExpanded((current) => !current)
             }} /></h2></div>
-            {isWebSynth && <ClickControlHelp label="Virtual keyboard" text="Press and hold a piano key with a pointer, or focus it and hold Space or Enter, to play a note. Releasing it starts the envelope release stages. Each note sets oscillator pitch and triggers its own envelopes, so you can play several notes together." />}
+            {isWebSynth && <ClickControlHelp label="Virtual keyboard" text="Press and hold a piano key with a pointer, or focus it and hold Space or Enter, to play a note. Releasing it starts the envelope release stages. Notes stop if the window loses focus or the page is hidden. Each note sets oscillator pitch and triggers its own envelopes, so you can play several notes together." />}
           </div>
           <div id="keyboard-options" className="keyboard-controls" hidden={!expanded}>
             <div className="octave-control" aria-label="Keyboard octave">
@@ -1110,6 +1137,7 @@ function VirtualKeyboard({ output }: { output: PerformanceOutput }) {
 function UltraNovaPanel() {
   const [lfo, setLfo] = useState(1)
   const [envelope, setEnvelope] = useState(2)
+  const values = usePatchStore((state) => state.values)
   const controls = (section: string) => (
     <div className="parameter-grid"><ParameterGroup parameters={ultranovaParameters.filter((parameter) => parameter.section === section)} /></div>
   )
@@ -1134,12 +1162,31 @@ function UltraNovaPanel() {
           </div>
           {controls(`LFO ${lfo}`)}
         </PanelModule>
-        <PanelModule id="ultranova-amp" title="Amp envelope" className="amp-module">{controls('Amp envelope')}</PanelModule>
+        <PanelModule id="ultranova-amp" title="Amp envelope" className="amp-module">
+          <div className="hardware-envelope-layout">
+            <div className="envelope-controls">
+              <ParameterGroup parameters={ultranovaParameters.filter((parameter) => parameter.section === 'Amp envelope')} />
+            </div>
+            <EnvelopeGraph id="ultranova-amp-graph" title="UltraNova amplifier envelope curve" attack={values.ampAttack} decay={values.ampDecay} sustain={values.ampSustain} release={values.ampRelease} />
+          </div>
+        </PanelModule>
         <PanelModule id="ultranova-envelopes" title="Filter / mod envelopes" className="mod-envelopes-module">
           <div className="lfo-selector">
             {[2, 3, 4, 5, 6].map((index) => <button key={index} type="button" aria-pressed={envelope === index} onClick={() => setEnvelope(index)}>{index === 2 ? 'Filter env' : `Env ${index}`}</button>)}
           </div>
-          {controls(`Envelope ${envelope}`)}
+          <div className="hardware-envelope-layout">
+            <div className="envelope-controls">
+              <ParameterGroup parameters={ultranovaParameters.filter((parameter) => parameter.section === `Envelope ${envelope}`)} />
+            </div>
+            <EnvelopeGraph
+              id={`ultranova-envelope-${envelope}-graph`}
+              title={`UltraNova envelope ${envelope} curve`}
+              attack={values[`env${envelope}Attack`]}
+              decay={values[`env${envelope}Decay`]}
+              sustain={values[`env${envelope}Sustain`]}
+              release={values[`env${envelope}Release`]}
+            />
+          </div>
         </PanelModule>
         <div className="oscillator-bank">
           {[1, 2, 3].map((index) => <PanelModule key={index} id={`ultranova-osc-${index}`} title={`Oscillator ${index}`} className="oscillator-module">{controls(`Oscillator ${index}`)}</PanelModule>)}
@@ -1179,7 +1226,10 @@ function App() {
       : midi.selectedOutputId ? 'Ready on selected MIDI output.' : 'Select a MIDI output to play.',
     onNoteOn: (note, velocity) => sendPerformanceNoteOn(activeProfileId, note, velocity),
     onNoteOff: (note) => sendPerformanceNoteOff(activeProfileId, note),
-    allNotesOff: () => releasePerformanceNotes(activeProfileId),
+    allNotesOff: () => {
+      inputHeldNotes.current = []
+      releasePerformanceNotes(activeProfileId)
+    },
   }), [activeProfileId, audio.status, midi.selectedOutputId])
   const rawPatch = usePatchStore((state) => state.summitState.rawPatch)
   const rawPatchSource = usePatchStore((state) => state.summitState.rawPatchSource)
@@ -1248,8 +1298,16 @@ function App() {
     <div className={`app-shell${activeProfileId === 'ultranova' ? ' ultranova-theme' : ''}${debug ? ' debug-mode' : ''}`}>
       <header className="app-header">
         <div className="brand-block">
-          <div className="brand-mark"><SlidersHorizontal aria-hidden="true" /></div>
-          <div><h1>Zinth <span>- Synth Patch Designer</span></h1></div>
+          <div className="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 48 40" fill="none">
+              <path d="M0 15c4 2 8 2 13 1 3-4 8-5 13-3l2-3 3 4 3-2 3 5 9 1c1 0 2 1 2 2v2H35c-2 4-6 6-11 6h-5l-1 5h-4l1-5H9l-2 5H3l4-8c-3-2-6-6-7-10Z" fill="currentColor" />
+              <path d="M33 22h13" stroke="#233229" strokeWidth="1.5" strokeLinecap="round" />
+              <path d="m35 22 2 3 2-3m2 0 2 3 2-3" fill="none" stroke="#233229" strokeWidth="1.1" strokeLinejoin="round" />
+              <circle cx="30" cy="15" r="2" fill="#233229" />
+              <circle cx="45" cy="17" r="1" fill="#233229" />
+            </svg>
+          </div>
+          <div><h1>Patch<span>Gator</span></h1><p>Synth patch designer</p></div>
         </div>
         <div className="patch-identity">
           <label><span>Synth profile</span><select aria-label="Synth profile" value={activeProfileId} onChange={(event) => setActiveProfile(event.target.value as typeof activeProfileId)}>

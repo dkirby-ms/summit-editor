@@ -20,3 +20,14 @@ export function scheduleSmoothedValue(param: AudioParam, value: number, now: num
   param.cancelScheduledValues(now)
   param.setTargetAtTime(value, now, timeConstant)
 }
+
+/** Holds the current intrinsic value before a release ramp, including browsers without native hold support. */
+export function holdAudioParamValue(param: AudioParam, now: number) {
+  if (typeof param.cancelAndHoldAtTime === 'function') {
+    param.cancelAndHoldAtTime(now)
+  } else {
+    const value = param.value
+    param.cancelScheduledValues(now)
+    param.setValueAtTime(value, now)
+  }
+}

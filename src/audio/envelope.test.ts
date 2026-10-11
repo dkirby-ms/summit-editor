@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { getEnvelopeStages, scheduleSmoothedValue } from './envelope'
+import { getEnvelopeStages, holdAudioParamValue, scheduleSmoothedValue } from './envelope'
 
 describe('audio envelope helpers', () => {
   it('schedules positive attack and decay stages with a clamped sustain level', () => {
@@ -25,5 +25,29 @@ describe('audio envelope helpers', () => {
 
     expect(param.cancelScheduledValues).toHaveBeenCalledWith(2.5)
     expect(param.setTargetAtTime).toHaveBeenCalledWith(880, 2.5, 0.02)
+  })
+
+  it('uses native hold automation when supported', () => {
+    const param = {
+      cancelAndHoldAtTime: vi.fn(),
+      cancelScheduledValues: vi.fn(),
+      setValueAtTime: vi.fn(),
+    } as unknown as AudioParam
+    holdAudioParamValue(param, 2.5)
+    expect(param.cancelAndHoldAtTime).toHaveBeenCalledExactlyOnceWith(2.5)
+    expect(param.cancelScheduledValues).not.toHaveBeenCalled()
+    expect(param.setValueAtTime).not.toHaveBeenCalled()
+  })
+
+  it('captures the current value before cancelling automation without native hold support', () => {
+    let value = 0.25
+    const param = {
+      get value() { return value },
+      cancelScheduledValues: vi.fn(() => { value = 0 }),
+      setValueAtTime: vi.fn(),
+    } as unknown as AudioParam
+    holdAudioParamValue(param, 2.5)
+    expect(param.cancelScheduledValues).toHaveBeenCalledExactlyOnceWith(2.5)
+    expect(param.setValueAtTime).toHaveBeenCalledExactlyOnceWith(0.25, 2.5)
   })
 })

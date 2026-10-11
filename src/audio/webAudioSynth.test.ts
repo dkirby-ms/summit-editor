@@ -17,7 +17,7 @@ function createAudioParam() {
   return { audioParam: audioParam as unknown as AudioParam, linearRampToValueAtTime }
 }
 
-function createAudioContext() {
+function createAudioContext(autoEnd = true) {
   let state: AudioContextState = 'suspended'
   const modulationConnections = new Set<unknown>()
   const oscillators: Array<{
@@ -50,7 +50,9 @@ function createAudioContext() {
         type: 'sine' as OscillatorType,
         onended: null as ((event: Event) => void) | null,
         start: vi.fn(),
-        stop: vi.fn(() => oscillator.onended?.(new Event('ended'))),
+        stop: vi.fn(() => {
+          if (autoEnd) oscillator.onended?.(new Event('ended'))
+        }),
         setPeriodicWave: vi.fn(() => { oscillator.type = 'custom' }),
         connect: vi.fn((destination: unknown) => {
           if (isLfo) modulationConnections.add(destination)
@@ -173,6 +175,53 @@ describe('Web Audio synth', () => {
     expect(gains[2].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 31)
     expect(filters[0].frequency.linearRampToValueAtTime).toHaveBeenLastCalledWith(6000, 31)
     expect(oscillators[1].stop).toHaveBeenLastCalledWith(31.005)
+  })
+
+  it('shortens long release tails and stolen voices on panic before ended events arrive', async () => {
+    const { context, oscillators, gains } = createAudioContext(false)
+    const synth = new WebAudioSynth(() => context)
+    await synth.start()
+    synth.setParameters({ ...webSynthDefaultValues, polyphony: 1, ampRelease: 30000, filterRelease: 30000 })
+    synth.noteOn(60)
+    synth.noteOff(60)
+    expect(oscillators[1].stop).toHaveBeenLastCalledWith(31.005)
+    synth.noteOn(64)
+    synth.noteOn(67)
+
+    expect(synth.allNotesOff()).toBe(3)
+    for (const oscillator of oscillators.slice(1)) {
+      expect(oscillator.stop.mock.calls.at(-1)?.[0]).toBeCloseTo(1.02)
+    }
+    for (const gain of [gains[2], gains[11], gains[20]]) {
+      expect(gain.gain.audioParam.cancelAndHoldAtTime).toHaveBeenLastCalledWith(1)
+      expect(gain.gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 1.015)
+    }
+    expect(synth.noteOff(67)).toBe(false)
+    for (const oscillator of oscillators.slice(1)) oscillator.onended?.(new Event('ended'))
+    expect(synth.activeVoiceCount).toBe(0)
+    expect(synth.allNotesOff()).toBe(0)
+    expect(synth.noteOn(72)).toBe(true)
+  })
+
+  it('releases notes and panics when AudioParams lack cancelAndHoldAtTime', async () => {
+    const { context, gains, filters, oscillators } = createAudioContext(false)
+    const synth = new WebAudioSynth(() => context)
+    await synth.start()
+    synth.setParameters({ ...webSynthDefaultValues, ampRelease: 30000, filterRelease: 30000 })
+    synth.noteOn(60)
+    for (const param of [gains[2].gain.audioParam, ...filters.map((filter) => filter.frequency.audioParam)]) {
+      Object.defineProperty(param, 'cancelAndHoldAtTime', { value: undefined })
+    }
+    expect(synth.noteOff(60)).toBe(true)
+    expect(gains[2].gain.audioParam.cancelScheduledValues).toHaveBeenLastCalledWith(1)
+    expect(gains[2].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 31)
+    expect(synth.allNotesOff()).toBe(1)
+    expect(gains[2].gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 1.015)
+    expect(oscillators[1].stop.mock.calls.at(-1)?.[0]).toBeCloseTo(1.02)
+    for (const filter of filters) {
+      expect(filter.frequency.audioParam.cancelScheduledValues).toHaveBeenLastCalledWith(1)
+      expect(filter.frequency.linearRampToValueAtTime.mock.calls.at(-1)?.[1]).toBeCloseTo(1.015)
+    }
   })
 
   it('removes retired voice modulation routes from the shared LFO', async () => {

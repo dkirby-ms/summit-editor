@@ -1,4 +1,4 @@
-import { getEnvelopeStages, scheduleSmoothedValue } from './envelope'
+import { getEnvelopeStages, holdAudioParamValue, scheduleSmoothedValue } from './envelope'
 import { VoiceAllocator } from './voiceAllocator'
 import { applyOscillatorShape } from './oscillatorShape'
 import { webSynthDefaultValues, webSynthParameters } from '../model/webSynthProfile'
@@ -142,10 +142,12 @@ export class WebAudioSynth {
     return true
   }
 
+  /** Silences held voices and release tails with a short fade; returns the affected voice count. */
   allNotesOff() {
-    const released = this.allocator.releaseAll()
-    for (const lease of released) this.releaseVoice(lease.id, 0.015)
-    return released.length
+    this.allocator.releaseAll()
+    const voices = [...this.voices.keys()]
+    for (const id of voices) this.releaseVoice(id, 0.015)
+    return voices.length
   }
 
   async dispose() {
@@ -293,7 +295,7 @@ export class WebAudioSynth {
   private releaseVoice(leaseId: number, duration?: number, startTime?: number) {
     const voice = this.voices.get(leaseId)
     const context = this.context
-    if (!voice || !context || voice.releasing) return
+    if (!voice || !context || (voice.releasing && duration === undefined)) return
     voice.releasing = true
     const now = startTime ?? context.currentTime
     const ampReleaseSeconds = duration ?? Math.max(0.005, this.values.ampRelease / 1000)
@@ -301,10 +303,10 @@ export class WebAudioSynth {
     const ampEndTime = now + ampReleaseSeconds
     const filterEndTime = now + filterReleaseSeconds
 
-    voice.ampGain.gain.cancelAndHoldAtTime(now)
+    holdAudioParamValue(voice.ampGain.gain, now)
     voice.ampGain.gain.linearRampToValueAtTime(0, ampEndTime)
     voice.filters.forEach((filter, index) => {
-      filter.frequency.cancelAndHoldAtTime(now)
+      holdAudioParamValue(filter.frequency, now)
       filter.frequency.linearRampToValueAtTime(this.filterCutoff(index), filterEndTime)
     })
     const stopTime = Math.max(ampEndTime, filterEndTime) + 0.005
